@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 export default function Categories(){
  const navigate = useNavigate();
 
- const categories = ["movies","tvshows","mix","bollywood"];
+ const categories = ["hollywood","tvshows","mix","bollywood","aNiMe"];
 
  return (
   <div className="p-10">
