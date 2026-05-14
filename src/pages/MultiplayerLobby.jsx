@@ -6,7 +6,8 @@ import { getPlayerId } from "../lib/player";
 
 export default function MultiplayerLobby() {
  const navigate = useNavigate();
-
+const [questionTime, setQuestionTime] =
+ useState(15);
  const [username, setUsername] = useState("");
  const [roomCode, setRoomCode] = useState("");
  const [selectedCategory, setSelectedCategory] =
@@ -46,7 +47,9 @@ export default function MultiplayerLobby() {
 
     total_rounds: selectedRounds,
 
-    endless_mode: endlessMode
+    endless_mode: endlessMode,
+
+    question_duration: questionTime
    });
 
   if (error) {
@@ -177,6 +180,38 @@ export default function MultiplayerLobby() {
        ? "Endless Mode Enabled"
        : "Enable Endless Mode"}
     </button>
+
+    <select
+ value={questionTime}
+ onChange={(e) =>
+  setQuestionTime(
+   Number(e.target.value)
+  )
+ }
+ className="w-full bg-zinc-800 p-4 rounded-xl mb-5"
+>
+
+ <option value={15}>
+  15 Seconds
+ </option>
+
+ <option value={30}>
+  30 Seconds
+ </option>
+
+ <option value={45}>
+  45 Seconds
+ </option>
+
+ <option value={60}>
+  1 Minute
+ </option>
+
+ <option value={0}>
+  No Timer
+ </option>
+
+</select>
 
     <button
      onClick={createRoom}

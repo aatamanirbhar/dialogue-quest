@@ -244,11 +244,9 @@ export default function Room() {
  const remainingTime =
   useMemo(() => {
 
-   if (
-    !room?.question_started_at
-   ) {
-    return 15;
-   }
+  if (!room?.question_started_at)
+ return room?.question_duration || 15;
+   
 
    const elapsed =
     (Date.now() -
@@ -269,53 +267,67 @@ export default function Room() {
 
  // TIMER + TRIVIA CHECKS
 
- useEffect(() => {
+useEffect(() => {
 
-  const interval = setInterval(
-   async () => {
+ const interval = setInterval(async () => {
 
-    if (!room) return;
+  if (!room) return;
 
-    // TIMER ENDED
+  // NO TIMER MODE
 
-    if (
-     !room.trivia_active &&
-     remainingTime <= 0
-    ) {
+  if (room.question_duration === 0) {
+   return;
+  }
 
-     if (isHost) {
-      await nextQuestion();
-     }
-    }
+  // TRIVIA ACTIVE
 
-    // TRIVIA ENDED
+  if (room.trivia_active) {
 
-    if (
-     room.trivia_active &&
+   if (!room.trivia_ends_at) return;
+
+   const triviaEnded =
+    Date.now() >=
+    new Date(
      room.trivia_ends_at
-    ) {
+    ).getTime();
 
-     const ended =
-      Date.now() >=
-      new Date(
-       room.trivia_ends_at
-      ).getTime();
+   if (
+    triviaEnded &&
+    isHost
+   ) {
+    await endTrivia();
+   }
 
-     if (
-      ended &&
-      isHost
-     ) {
-      await endTrivia();
-     }
-    }
+   return;
+  }
 
-   },
-   1000
-  );
+  // QUESTION TIMER
 
-  return () => clearInterval(interval);
+  const startTime =
+   new Date(
+    room.question_started_at
+   ).getTime();
 
- }, [room, remainingTime]);
+  const elapsed =
+   (Date.now() - startTime) /
+   1000;
+
+  if (
+   elapsed >=
+   room.question_duration
+  ) {
+
+   if (isHost) {
+    await nextQuestion();
+   }
+  }
+
+ }, 1000);
+
+ return () =>
+  clearInterval(interval);
+
+}, [room]);
 
  // NEXT QUESTION
 
@@ -456,6 +468,8 @@ export default function Room() {
  // SUBMIT ANSWER
 
  const submitAnswer = async () => {
+
+  if (room.trivia_active) return;
 
   if (!quote) return;
 
@@ -633,7 +647,8 @@ export default function Room() {
 
    {/* WAITING ROOM */}
 
-   {!room?.game_started ? (
+   {room?.game_started &&
+ room.question_duration !== 0 && (
 
     <div className="bg-zinc-900 rounded-3xl p-10">
 
