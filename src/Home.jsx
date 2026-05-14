@@ -1,0 +1,1 @@
+import React from "react"; export default function Home(){return(<div style={{height:"100vh",display:"flex",justifyContent:"center",alignItems:"center",fontSize:"40px"}}>Dialogue Quest Production Build</div>)}
