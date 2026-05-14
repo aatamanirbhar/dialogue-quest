@@ -686,7 +686,7 @@ useEffect(() => {
      )}
     </div>
 
-   ) : (
+   )(
 
     <div className="grid lg:grid-cols-3 gap-6">
 
