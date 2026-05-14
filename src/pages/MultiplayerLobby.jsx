@@ -1,12 +1,22 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import { supabase } from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
 
 export default function MultiplayerLobby() {
- const [roomCode, setRoomCode] = useState("");
- const [username, setUsername] = useState("");
  const navigate = useNavigate();
+
+ const [username, setUsername] = useState("");
+ const [roomCode, setRoomCode] = useState("");
+ const [selectedCategory, setSelectedCategory] =
+  useState("Hollywood");
+
+ const [selectedRounds, setSelectedRounds] =
+  useState(10);
+
+ const [endlessMode, setEndlessMode] =
+  useState(false);
 
  const createRoom = async () => {
   if (!username) {
@@ -25,9 +35,18 @@ export default function MultiplayerLobby() {
    .from("rooms")
    .insert({
     room_code: code,
+
     host_id: playerId,
+
     current_question: 0,
-    game_started: false
+
+    game_started: false,
+
+    category: selectedCategory,
+
+    total_rounds: selectedRounds,
+
+    endless_mode: endlessMode
    });
 
   if (error) {
@@ -39,8 +58,11 @@ export default function MultiplayerLobby() {
    .from("room_players")
    .insert({
     room_code: code,
+
     player_id: playerId,
+
     username,
+
     score: 0
    });
 
@@ -55,13 +77,15 @@ export default function MultiplayerLobby() {
 
   const playerId = getPlayerId();
 
-  const { data } = await supabase
+  const upperCode = roomCode.toUpperCase();
+
+  const { data: room } = await supabase
    .from("rooms")
    .select("*")
-   .eq("room_code", roomCode.toUpperCase())
+   .eq("room_code", upperCode)
    .single();
 
-  if (!data) {
+  if (!room) {
    alert("Room not found");
    return;
   }
@@ -69,7 +93,7 @@ export default function MultiplayerLobby() {
   const { data: existing } = await supabase
    .from("room_players")
    .select("*")
-   .eq("room_code", roomCode.toUpperCase())
+   .eq("room_code", upperCode)
    .eq("player_id", playerId)
    .maybeSingle();
 
@@ -77,49 +101,104 @@ export default function MultiplayerLobby() {
    await supabase
     .from("room_players")
     .insert({
-      room_code: roomCode.toUpperCase(),
+      room_code: upperCode,
+
       player_id: playerId,
+
       username,
+
       score: 0
     });
   }
 
-  navigate(`/room/${roomCode.toUpperCase()}`);
+  navigate(`/room/${upperCode}`);
  };
 
  return (
-  <div className="min-h-screen flex items-center justify-center px-6">
-   <div className="bg-zinc-900 p-10 rounded-3xl w-full max-w-xl">
+  <div className="min-h-screen bg-black text-white flex items-center justify-center p-6">
+
+   <div className="bg-zinc-900 rounded-3xl p-10 w-full max-w-xl">
+
     <h1 className="text-5xl font-bold mb-8">
-     Multiplayer
+      Multiplayer
     </h1>
 
     <input
      value={username}
-     onChange={(e) => setUsername(e.target.value)}
+     onChange={(e) =>
+      setUsername(e.target.value)
+     }
      placeholder="Username"
-     className="w-full p-4 rounded-xl bg-zinc-800 mb-5"
+     className="w-full bg-zinc-800 p-4 rounded-xl mb-5"
     />
+
+    <select
+     value={selectedCategory}
+     onChange={(e) =>
+      setSelectedCategory(e.target.value)
+     }
+     className="w-full bg-zinc-800 p-4 rounded-xl mb-5"
+    >
+      <option>Hollywood</option>
+      <option>Bollywood</option>
+      <option>TV Series</option>
+      <option>Anime</option>
+    </select>
+
+    <select
+     value={selectedRounds}
+     onChange={(e) =>
+      setSelectedRounds(
+       Number(e.target.value)
+      )
+     }
+     className="w-full bg-zinc-800 p-4 rounded-xl mb-5"
+    >
+      <option value={5}>
+        5 Rounds
+      </option>
+
+      <option value={10}>
+        10 Rounds
+      </option>
+
+      <option value={20}>
+        20 Rounds
+      </option>
+    </select>
+
+    <button
+     onClick={() =>
+      setEndlessMode(!endlessMode)
+     }
+     className="w-full bg-zinc-800 p-4 rounded-xl mb-5"
+    >
+      {endlessMode
+       ? "Endless Mode Enabled"
+       : "Enable Endless Mode"}
+    </button>
 
     <button
      onClick={createRoom}
-     className="w-full bg-yellow-400 text-black py-4 rounded-xl font-bold mb-6"
+     className="w-full bg-yellow-400 text-black p-4 rounded-xl font-bold mb-8"
     >
-     Create Room
+      Create Room
     </button>
 
     <input
      value={roomCode}
-     onChange={(e) => setRoomCode(e.target.value)}
-     placeholder="Enter room code"
-     className="w-full p-4 rounded-xl bg-zinc-800 mb-5 uppercase"
+     onChange={(e) =>
+      setRoomCode(e.target.value)
+     }
+     placeholder="Enter Room Code"
+     className="w-full bg-zinc-800 p-4 rounded-xl mb-5 uppercase"
     />
 
     <button
      onClick={joinRoom}
-     className="w-full bg-white text-black py-4 rounded-xl font-bold"
+     className="w-full bg-white text-black p-4 rounded-xl font-bold"
     >
-     Join Room
+      Join Room
     </button>
    </div>
   </div>
