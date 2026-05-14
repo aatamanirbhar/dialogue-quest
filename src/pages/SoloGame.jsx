@@ -1,3 +1,4 @@
+import React from "react";
 import { useParams } from "react-router-dom";
 import { useState } from "react";
 import movies from "../data/movies";
@@ -15,7 +16,11 @@ export default function SoloGame(){
  const [answer,setAnswer] = useState("");
  const [score,setScore] = useState(0);
 
- const current = data[index];
+ if (!data) {
+  return <div>Category not found</div>;
+}
+
+const current = data[index];
 
  const submit = () => {
   if(answer.toLowerCase() === current.answer.toLowerCase()){
