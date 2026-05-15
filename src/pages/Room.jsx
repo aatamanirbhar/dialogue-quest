@@ -357,7 +357,8 @@ export default function Room() {
   await supabase
    .from("room_players")
    .update({
-    answered_current: false
+    answered_current: false,
+    current_answer_correct: null
    })
    .eq("room_code", code);
 
@@ -647,7 +648,8 @@ export default function Room() {
    await supabase
     .from("room_players")
     .update({
-     answered_current: false
+     answered_current: false,
+     current_answer_correct: null
     })
     .eq("room_code", code);
 
@@ -757,13 +759,21 @@ export default function Room() {
 
   if (!quote) return;
 
+  const isCorrect =
+   normalizeAnswer(message) ===
+   normalizeAnswer(
+    quote.answer
+   );
+
   // SHOW ANSWERED STATUS
 
   const { data: answeredPlayer } =
    await supabase
     .from("room_players")
     .update({
-     answered_current: true
+     answered_current: true,
+     current_answer_correct:
+      isCorrect
     })
     .eq("player_id", playerId)
     .eq("room_code", code)
@@ -778,14 +788,7 @@ export default function Room() {
 
   // CORRECT ANSWER
 
-  if (
-
-   normalizeAnswer(message) ===
-   normalizeAnswer(
-    quote.answer
-   )
-
-  ) {
+  if (isCorrect) {
 
    const newScore =
     (answeredPlayer.score || 0) + 1;
@@ -1050,8 +1053,19 @@ export default function Room() {
 
          {player.answered_current && (
 
-          <div className="text-green-400 text-sm">
+          <div
+           className={`text-sm ${
+            player.current_answer_correct
+             ? "text-green-400"
+             : "text-red-400"
+           }`}
+          >
+           <span className="hidden">
            Answered ✓
+           </span>
+           {player.current_answer_correct
+            ? "Answered Correct"
+            : "Answered Incorrect"}
           </div>
          )}
 
