@@ -504,6 +504,37 @@ export default function Room() {
 
    if (!lockedRoom) return;
 
+   if (
+    !force &&
+    lockedRoom.show_trivia
+   ) {
+    const { data } = await supabase
+     .from("rooms")
+     .update({
+      trivia_active: true,
+      trivia_ends_at:
+       toSupabaseTime(
+        new Date(
+         Date.now() + TRIVIA_DURATION
+        )
+       ),
+      processing_answer: false
+     })
+     .eq("room_code", code)
+     .eq(
+      "current_question",
+      lockedRoom.current_question
+     )
+     .select()
+     .single();
+
+    if (data) {
+     setRoom(data);
+    }
+
+    return;
+   }
+
    const nextIndex =
     lockedRoom.current_question + 1;
 
