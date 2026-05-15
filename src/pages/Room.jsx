@@ -216,11 +216,14 @@ export default function Room() {
    .from("room_questions")
    .insert(inserts);
 
+  const firstQuoteId =
+   selected[0]?.id;
+
   const { data } = await supabase
    .from("rooms")
    .update({
     current_quote_id:
-     selected[0].id
+     firstQuoteId
    })
    .eq("room_code", code)
    .select()
@@ -229,6 +232,8 @@ export default function Room() {
   if (data) {
    setRoom(data);
   }
+
+  return firstQuoteId;
  };
 
  // INITIAL LOAD
@@ -255,7 +260,11 @@ export default function Room() {
    fetchCurrentQuote();
   }
 
- }, [room?.current_question]);
+ }, [
+  room?.current_question,
+  room?.current_quote_id,
+  room?.game_started
+ ]);
 
  // REALTIME
 
@@ -318,19 +327,49 @@ export default function Room() {
   const { data: existing } =
    await supabase
     .from("room_questions")
-    .select("*")
-    .eq("room_code", code);
+     .select("*")
+     .eq("room_code", code);
+
+  let firstQuoteId =
+   existing?.find(
+    (question) =>
+     question.question_order === 0
+   )?.quote_id;
 
   if (!existing?.length) {
-   await generateQuestions();
+   firstQuoteId =
+    await generateQuestions();
   }
 
- const { data } = await supabase
+  if (!firstQuoteId) {
+   const { data: firstQuestion } =
+    await supabase
+     .from("room_questions")
+     .select("quote_id")
+     .eq("room_code", code)
+     .eq("question_order", 0)
+     .single();
+
+   firstQuoteId =
+    firstQuestion?.quote_id;
+  }
+
+  await supabase
+   .from("room_players")
+   .update({
+    answered_current: false
+   })
+   .eq("room_code", code);
+
+  const { data } = await supabase
    .from("rooms")
    .update({
     game_started: true,
 
     current_question: 0,
+
+    current_quote_id:
+     firstQuoteId,
 
     question_started_at:
      toSupabaseTime(),
