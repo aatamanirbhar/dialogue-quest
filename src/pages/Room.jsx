@@ -1,6 +1,7 @@
 import React, {
  useEffect,
  useMemo,
+ useRef,
  useState
 } from "react";
 
@@ -8,6 +9,80 @@ import { useParams } from "react-router-dom";
 
 import { supabase } from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
+
+const DEFAULT_QUESTION_DURATION = 15;
+const TRIVIA_DURATION = 5000;
+
+const parseSupabaseTime = (value) => {
+ if (!value) return null;
+
+ if (value instanceof Date) {
+  return value.getTime();
+ }
+
+ const text = String(value).trim();
+
+ const hasTimezone =
+  /(?:z|[+-]\d{2}:?\d{2})$/i.test(text);
+
+ const isoLikeText =
+  text.includes("T")
+   ? text
+   : text.replace(" ", "T");
+
+ const normalized =
+  hasTimezone
+   ? isoLikeText
+   : `${isoLikeText}Z`;
+
+ const time = new Date(normalized).getTime();
+
+ return Number.isNaN(time) ? null : time;
+};
+
+const toSupabaseTime = (date = new Date()) => {
+ return date.toISOString();
+};
+
+const getQuestionDuration = (room) => {
+ return (
+  Number(room?.question_duration) ||
+  DEFAULT_QUESTION_DURATION
+ );
+};
+
+const getRemainingTime = (room, currentTime) => {
+ if (!room?.question_started_at) {
+ return DEFAULT_QUESTION_DURATION;
+ }
+
+ const startedAt =
+  parseSupabaseTime(
+   room.question_started_at
+  );
+
+ if (!startedAt) {
+  return DEFAULT_QUESTION_DURATION;
+ }
+
+ const elapsed =
+  (currentTime - startedAt) / 1000;
+
+ return Math.max(
+  0,
+  Math.ceil(
+   getQuestionDuration(room) -
+    elapsed
+  )
+ );
+};
+
+const hasQuestionExpired = (room) => {
+ return (
+  getRemainingTime(room, Date.now()) <=
+  0
+ );
+};
 
 const normalizeAnswer = (text) => {
  return text
@@ -27,6 +102,9 @@ export default function Room() {
  const [quote, setQuote] = useState(null);
  const [message, setMessage] = useState("");
  const [loading, setLoading] = useState(true);
+ const [now, setNow] = useState(Date.now());
+
+ const advancingRef = useRef(false);
 
  const me = useMemo(() => {
   return players.find(
@@ -138,13 +216,19 @@ export default function Room() {
    .from("room_questions")
    .insert(inserts);
 
-  await supabase
+  const { data } = await supabase
    .from("rooms")
    .update({
     current_quote_id:
      selected[0].id
    })
-   .eq("room_code", code);
+   .eq("room_code", code)
+   .select()
+   .single();
+
+  if (data) {
+   setRoom(data);
+  }
  };
 
  // INITIAL LOAD
@@ -185,7 +269,8 @@ export default function Room() {
     {
       event: "*",
       schema: "public",
-      table: "rooms"
+      table: "rooms",
+      filter: `room_code=eq.${code}`
     },
     () => {
       fetchRoom();
@@ -197,7 +282,8 @@ export default function Room() {
     {
       event: "*",
       schema: "public",
-      table: "room_players"
+      table: "room_players",
+      filter: `room_code=eq.${code}`
     },
     () => {
       fetchPlayers();
@@ -209,6 +295,19 @@ export default function Room() {
   return () => {
    supabase.removeChannel(channel);
   };
+
+ }, []);
+
+ // LOCAL CLOCK
+
+ useEffect(() => {
+
+  const interval = setInterval(
+   () => setNow(Date.now()),
+   1000
+  );
+
+  return () => clearInterval(interval);
 
  }, []);
 
@@ -226,7 +325,7 @@ export default function Room() {
    await generateQuestions();
   }
 
-  await supabase
+ const { data } = await supabase
    .from("rooms")
    .update({
     game_started: true,
@@ -234,9 +333,21 @@ export default function Room() {
     current_question: 0,
 
     question_started_at:
-     new Date().toISOString()
+     toSupabaseTime(),
+
+    trivia_active: false,
+
+    trivia_ends_at: null,
+
+    processing_answer: false
    })
-   .eq("room_code", code);
+   .eq("room_code", code)
+   .select()
+   .single();
+
+  if (data) {
+   setRoom(data);
+  }
  };
 
  // TIMER
@@ -244,158 +355,269 @@ export default function Room() {
  const remainingTime =
   useMemo(() => {
 
-   if (
-    !room?.question_started_at
-   ) {
-    return 15;
-   }
-
-   const elapsed =
-    (Date.now() -
-     new Date(
-      room.question_started_at
-     ).getTime()) /
-    1000;
-
-   return Math.max(
-    0,
-    Math.ceil(
-     room.question_duration -
-      elapsed
-    )
+   return getRemainingTime(
+    room,
+    now
    );
 
-  }, [room]);
+  }, [
+   room?.question_started_at,
+   room?.question_duration,
+   now
+  ]);
 
- // TIMER + TRIVIA CHECKS
+ // TIMER
 
  useEffect(() => {
 
-  const interval = setInterval(
-   async () => {
-
-    if (!room) return;
-
-    // TIMER ENDED
-
-    if (
-     !room.trivia_active &&
-     remainingTime <= 0
-    ) {
-
-     if (isHost) {
-      await nextQuestion();
-     }
-    }
-
-    // TRIVIA ENDED
-
-    if (
-     room.trivia_active &&
-     room.trivia_ends_at
-    ) {
-
-     const ended =
-      Date.now() >=
-      new Date(
-       room.trivia_ends_at
-      ).getTime();
-
-     if (
-      ended &&
-      isHost
-     ) {
-      await endTrivia();
-     }
-    }
-
-   },
-   1000
-  );
-
-  return () => clearInterval(interval);
-
- }, [room, remainingTime]);
-
- // NEXT QUESTION
-
- const nextQuestion = async () => {
-
-  const nextIndex =
-   room.current_question + 1;
-
-  // GAME FINISHED
-
   if (
-   !room.endless_mode &&
-   nextIndex >=
-    room.total_rounds
+   !room?.game_started ||
+   room?.game_finished ||
+   room?.trivia_active ||
+   !room?.question_started_at ||
+   !isHost
   ) {
-
-   const sorted =
-    [...players].sort(
-     (a, b) =>
-      b.score - a.score
-    );
-
-   await supabase
-    .from("rooms")
-    .update({
-      game_finished: true,
-
-      winner:
-       sorted[0]?.username ||
-       "No Winner"
-    })
-    .eq("room_code", code);
-
    return;
   }
 
-  // FETCH NEXT QUESTION
+  const durationMs =
+   getQuestionDuration(room) *
+   1000;
 
-  const {
-   data: nextRoomQuestion
-  } = await supabase
-   .from("room_questions")
-   .select("*")
-   .eq("room_code", code)
-   .eq(
-     "question_order",
-     nextIndex
-   )
-   .single();
+  const startedAt =
+   parseSupabaseTime(
+    room.question_started_at
+   );
 
-  if (!nextRoomQuestion) return;
+  if (!startedAt) {
+   return;
+  }
 
-  // RESET ANSWER STATES
+  const delay = Math.max(
+   0,
+   startedAt + durationMs - Date.now()
+  );
 
-  await supabase
-   .from("room_players")
-   .update({
-    answered_current: false
-   })
-   .eq("room_code", code);
+  const timeout = setTimeout(
+   () => {
+    nextQuestion();
+   },
+   delay
+  );
 
-  // UPDATE ROOM
+  return () => clearTimeout(timeout);
 
-  await supabase
-   .from("rooms")
-   .update({
+ }, [
+  room?.game_started,
+  room?.game_finished,
+  room?.trivia_active,
+  room?.question_started_at,
+  room?.question_duration,
+  isHost
+ ]);
 
-    current_question:
-     nextIndex,
+ // TRIVIA TIMER
 
-    current_quote_id:
-     nextRoomQuestion.quote_id,
+ useEffect(() => {
 
-    question_started_at:
-     new Date().toISOString(),
+  if (
+   !room?.trivia_active ||
+   !room?.trivia_ends_at ||
+   !isHost
+  ) {
+   return;
+  }
 
-    trivia_active: false
+  const endsAt =
+   parseSupabaseTime(
+    room.trivia_ends_at
+   );
 
-   })
-   .eq("room_code", code);
+  if (!endsAt) {
+   return;
+  }
+
+  const delay = Math.max(
+   0,
+   endsAt - Date.now()
+  );
+
+  const timeout = setTimeout(
+   () => {
+    endTrivia();
+   },
+   delay
+  );
+
+  return () => clearTimeout(timeout);
+
+ }, [
+  room?.trivia_active,
+  room?.trivia_ends_at,
+  isHost
+ ]);
+
+ // NEXT QUESTION
+
+ const nextQuestion = async ({
+  force = false
+ } = {}) => {
+
+  if (!room || advancingRef.current) return;
+
+  advancingRef.current = true;
+
+  try {
+
+   const { data: latestRoom } =
+    await supabase
+     .from("rooms")
+     .select("*")
+     .eq("room_code", code)
+     .single();
+
+   if (
+    !latestRoom ||
+    latestRoom.game_finished ||
+    (
+     !force &&
+     !hasQuestionExpired(latestRoom)
+    )
+   ) {
+    return;
+   }
+
+   const { data: lockedRoom } =
+    await supabase
+     .from("rooms")
+     .update({
+      processing_answer: true
+     })
+     .eq("room_code", code)
+     .eq(
+      "current_question",
+      latestRoom.current_question
+     )
+     .eq("processing_answer", false)
+     .select("*")
+     .maybeSingle();
+
+   if (!lockedRoom) return;
+
+   const nextIndex =
+    lockedRoom.current_question + 1;
+
+   // GAME FINISHED
+
+   if (
+    !lockedRoom.endless_mode &&
+    nextIndex >=
+     lockedRoom.total_rounds
+   ) {
+
+    const sorted =
+     [...players].sort(
+      (a, b) =>
+       b.score - a.score
+     );
+
+    const { data } = await supabase
+     .from("rooms")
+     .update({
+       game_finished: true,
+
+       winner:
+        sorted[0]?.username ||
+        "No Winner",
+
+       processing_answer: false
+     })
+     .eq("room_code", code)
+     .eq(
+      "current_question",
+      lockedRoom.current_question
+     )
+     .select()
+     .single();
+
+    if (data) {
+     setRoom(data);
+    }
+
+    return;
+   }
+
+   // FETCH NEXT QUESTION
+
+   const {
+    data: nextRoomQuestion
+   } = await supabase
+    .from("room_questions")
+    .select("*")
+    .eq("room_code", code)
+    .eq(
+      "question_order",
+      nextIndex
+    )
+    .single();
+
+   if (!nextRoomQuestion) {
+    await supabase
+     .from("rooms")
+     .update({
+      processing_answer: false
+     })
+     .eq("room_code", code);
+
+    return;
+   }
+
+   // RESET ANSWER STATES
+
+   await supabase
+    .from("room_players")
+    .update({
+     answered_current: false
+    })
+    .eq("room_code", code);
+
+   // UPDATE ROOM
+
+   const { data } = await supabase
+    .from("rooms")
+    .update({
+
+     current_question:
+      nextIndex,
+
+     current_quote_id:
+      nextRoomQuestion.quote_id,
+
+     question_started_at:
+      toSupabaseTime(),
+
+     trivia_active: false,
+
+     trivia_ends_at: null,
+
+     processing_answer: false
+
+    })
+    .eq("room_code", code)
+    .eq(
+     "current_question",
+     lockedRoom.current_question
+    )
+    .select()
+    .single();
+
+   if (data) {
+    setRoom(data);
+   }
+
+  } finally {
+   advancingRef.current = false;
+  }
  };
 
  // START TRIVIA
@@ -409,9 +631,11 @@ export default function Room() {
     trivia_active: true,
 
     trivia_ends_at:
-     new Date(
-      Date.now() + 5000
-     ).toISOString()
+     toSupabaseTime(
+      new Date(
+       Date.now() + TRIVIA_DURATION
+      )
+     )
 
    })
    .eq("room_code", code);
@@ -428,7 +652,9 @@ export default function Room() {
    })
    .eq("room_code", code);
 
-  await nextQuestion();
+  await nextQuestion({
+   force: true
+  });
  };
 
  // SKIP TRIVIA
@@ -450,7 +676,9 @@ export default function Room() {
     })
     .eq("room_code", code);
 
-   await nextQuestion();
+   await nextQuestion({
+    force: true
+   });
   };
 
  // SUBMIT ANSWER
@@ -461,13 +689,22 @@ export default function Room() {
 
   // SHOW ANSWERED STATUS
 
-  await supabase
-   .from("room_players")
-   .update({
-    answered_current: true
-   })
-   .eq("player_id", playerId)
-   .eq("room_code", code);
+  const { data: answeredPlayer } =
+   await supabase
+    .from("room_players")
+    .update({
+     answered_current: true
+    })
+    .eq("player_id", playerId)
+    .eq("room_code", code)
+    .eq("answered_current", false)
+    .select("*")
+    .maybeSingle();
+
+  if (!answeredPlayer) {
+   setMessage("");
+   return;
+  }
 
   // CORRECT ANSWER
 
@@ -481,7 +718,7 @@ export default function Room() {
   ) {
 
    const newScore =
-    (me?.score || 0) + 1;
+    (answeredPlayer.score || 0) + 1;
 
    await supabase
     .from("room_players")
@@ -494,17 +731,8 @@ export default function Room() {
     )
     .eq("room_code", code);
 
-   // TRIVIA
-
-   if (room.show_trivia) {
-
-    await startTrivia();
-
-   } else {
-
-    await nextQuestion();
-
-   }
+   // Keep the question open until the timer ends so every player
+   // gets the same answer window.
   }
 
   setMessage("");
