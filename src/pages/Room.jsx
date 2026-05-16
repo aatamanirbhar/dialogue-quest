@@ -7,7 +7,8 @@ import React, {
 
 import {
  useNavigate,
- useParams
+ useParams,
+ useSearchParams
 } from "react-router-dom";
 
 import { supabase } from "../lib/supabase";
@@ -16,8 +17,12 @@ import {
  getAccount,
  isPremium,
  isPremiumPlus,
- onAccountChange
+ onAccountChange,
+ recordPlayHistory
 } from "../lib/account";
+import {
+ getRandomCompliment
+} from "../lib/playerStats";
 
 const DEFAULT_QUESTION_DURATION = 15;
 const TRIVIA_DURATION = 5000;
@@ -175,6 +180,7 @@ const getWinnerText = (players) => {
 export default function Room() {
  const navigate = useNavigate();
  const { code } = useParams();
+ const [searchParams] = useSearchParams();
  const playerId = getPlayerId();
 
  const [room, setRoom] = useState(null);
@@ -187,9 +193,13 @@ export default function Room() {
   useState([]);
  const [account, setAccount] = useState(null);
  const [now, setNow] = useState(Date.now());
+ const [finalNote, setFinalNote] =
+  useState(null);
 
  const advancingRef = useRef(false);
  const previousPlayersRef = useRef([]);
+ const recordedFinishedRoomRef =
+  useRef(null);
 
  const me = useMemo(() => {
   return players.find(
@@ -642,7 +652,7 @@ export default function Room() {
      ascending: false
     });
 
-  const { data } = await supabase
+ const { data } = await supabase
    .from("rooms")
    .update({
     game_finished: true,
@@ -663,6 +673,85 @@ export default function Room() {
 
   if (data) setRoom(data);
  };
+
+ useEffect(() => {
+  if (
+   !room?.game_finished ||
+   !players.length ||
+   recordedFinishedRoomRef.current ===
+    room.room_code
+  ) {
+   return;
+  }
+
+  const playerAccountId =
+   searchParams.get("account") ||
+   account?.id;
+  const myPlayer = players.find(
+   (player) =>
+    player.player_id === playerId ||
+    player.account_id === playerAccountId
+  );
+
+  if (!myPlayer || !account) return;
+
+  const sorted = [...players].sort(
+   (a, b) => Number(b.score || 0) -
+    Number(a.score || 0)
+  );
+  const topScore = Number(
+   sorted[0]?.score || 0
+  );
+  const leaders = sorted.filter(
+   (player) =>
+    Number(player.score || 0) === topScore
+  );
+  const tied = leaders.length > 1;
+  const won = leaders.some(
+   (player) => player.id === myPlayer.id
+  );
+  const result = tied
+   ? "tie"
+   : won
+    ? "win"
+    : "loss";
+
+  recordedFinishedRoomRef.current =
+   room.room_code;
+  recordPlayHistory({
+   mode: "multiplayer",
+   category: room.category,
+   roomCode: room.room_code,
+   score: myPlayer.score,
+   totalQuestions:
+    Number(room.total_rounds || 0),
+   result,
+   opponentCount:
+    Math.max(0, players.length - 1),
+   winnerName: room.winner,
+   metadata: {
+    playerName: myPlayer.username,
+    players: players.map((player) => ({
+     name: player.username,
+     score: player.score
+    }))
+   }
+  });
+  setFinalNote({
+   result,
+   compliment: getRandomCompliment(tied)
+  });
+ }, [
+  room?.game_finished,
+  room?.room_code,
+  room?.category,
+  room?.total_rounds,
+  room?.winner,
+  players,
+  account,
+  searchParams,
+  playerId
+ ]);
 
  const nextQuestion = async ({
   force = false
@@ -981,6 +1070,21 @@ export default function Room() {
       <h2 className="text-5xl font-bold mb-4">
        {room.winner || "No Winner"}
       </h2>
+
+      {finalNote && (
+       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-6">
+        <p className="text-yellow-300 uppercase tracking-[0.25em] text-sm mb-2">
+         {finalNote.compliment}
+        </p>
+        <p className="text-zinc-300">
+         {finalNote.result === "tie"
+          ? "Nobody blinked. That tie had serious final-round energy."
+          : finalNote.result === "win"
+           ? "Winner energy. That one goes in the history."
+           : "Not your round, but definitely useful data for the comeback."}
+        </p>
+       </div>
+      )}
 
       <p className="text-zinc-400 mb-8">
        The room is locked to current players. The host can play again here or close it.

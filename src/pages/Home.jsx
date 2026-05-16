@@ -79,6 +79,7 @@ export default function Home(){
     .insert({
      room_code: upperCode,
      player_id: playerId,
+     account_id: null,
      username: username.trim(),
      score: 0
     });
@@ -94,26 +95,6 @@ export default function Home(){
    <p className="text-gray-400 max-w-xl mb-8">
     Guess movie and TV dialogues with friends in realtime multiplayer.
    </p>
-
-   <div className="flex flex-col sm:flex-row gap-3 mb-5">
-    <button
-     onClick={() =>
-      navigate("/multiplayer?auth=signin")
-     }
-     className="bg-yellow-400 text-black px-8 py-4 rounded-lg font-bold"
-    >
-     Login
-    </button>
-
-    <button
-     onClick={() =>
-      navigate("/multiplayer?auth=signup")
-     }
-     className="bg-zinc-900 border border-zinc-800 px-8 py-4 rounded-lg font-bold"
-    >
-     Create Account
-    </button>
-   </div>
 
    <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-6 mb-5">
     <h2 className="text-2xl font-bold mb-4">
@@ -152,12 +133,23 @@ export default function Home(){
     </form>
    </div>
 
-   <button
-    onClick={()=>navigate('/categories')}
-   className="bg-white text-black px-8 py-4 rounded-lg font-bold"
-  >
-    Play Solo
-  </button>
+   <div className="flex flex-col sm:flex-row gap-3">
+    <button
+     onClick={() => navigate("/categories")}
+     className="bg-white text-black px-8 py-4 rounded-lg font-bold"
+    >
+     Play Solo
+    </button>
+
+    <button
+     onClick={() =>
+      navigate("/multiplayer?auth=signup")
+     }
+     className="bg-yellow-400 text-black px-8 py-4 rounded-lg font-bold"
+    >
+     Play Multiplayer
+    </button>
+   </div>
   </div>
  )
 }

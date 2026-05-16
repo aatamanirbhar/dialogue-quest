@@ -10,8 +10,13 @@ import {
 import { supabase } from "../lib/supabase";
 import {
  getAccount,
- isPremium
+ isPremium,
+ recordPlayHistory
 } from "../lib/account";
+import {
+ getInsight,
+ getRandomCompliment
+} from "../lib/playerStats";
 
 const QUESTION_TIME = 30;
 const DEFAULT_MIX_CATEGORIES = [
@@ -99,6 +104,10 @@ export default function SoloGame() {
   useState(QUESTION_TIME);
  const [activeMixCategories, setActiveMixCategories] =
   useState(DEFAULT_MIX_CATEGORIES);
+ const [finishNote, setFinishNote] =
+  useState(null);
+ const [historyRecorded, setHistoryRecorded] =
+  useState(false);
 
  useEffect(() => {
   loadQuotes();
@@ -112,6 +121,8 @@ export default function SoloGame() {
   setAnswer("");
   setShowResult(false);
   setGameFinished(false);
+  setFinishNote(null);
+  setHistoryRecorded(false);
 
   const nextAccount = await getAccount();
   setAccount(nextAccount);
@@ -259,12 +270,62 @@ export default function SoloGame() {
   setAnswer("");
   setShowResult(false);
   setGameFinished(false);
+  setFinishNote(null);
+  setHistoryRecorded(false);
 
   const reshuffled = [...quotes].sort(
    () => Math.random() - 0.5
   );
   setQuotes(reshuffled);
  }
+
+ useEffect(() => {
+  if (
+   !gameFinished ||
+   historyRecorded ||
+   !quotes.length
+  ) {
+   return;
+  }
+
+  const result =
+   score / Math.max(1, quotes.length) >= 0.5
+    ? "win"
+    : "loss";
+
+  setHistoryRecorded(true);
+  recordPlayHistory({
+   mode: "solo",
+   category: isMixCategory(category)
+    ? "mix"
+    : category,
+   score,
+   totalQuestions: quotes.length,
+   result,
+   metadata: {
+    mixCategories: activeMixCategories
+   }
+  });
+  setFinishNote({
+   result,
+   compliment: getRandomCompliment(),
+   insight: getInsight([
+    {
+     category: isMixCategory(category)
+      ? "mix"
+      : category,
+     result
+    }
+   ])
+  });
+ }, [
+  gameFinished,
+  historyRecorded,
+  quotes.length,
+  score,
+  category,
+  activeMixCategories
+ ]);
 
  if (loading) {
   return (
@@ -340,6 +401,22 @@ export default function SoloGame() {
     <p className="text-2xl mb-8">
      Your Score: {score} / {quotes.length}
     </p>
+
+    {finishNote && (
+     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 mb-8 max-w-xl">
+      <p className="text-yellow-300 uppercase tracking-[0.25em] text-sm mb-3">
+       {finishNote.compliment}
+      </p>
+      <p className="text-zinc-300">
+       {finishNote.result === "win"
+        ? "That was a clean solo win."
+        : "Good run. The comeback arc is warming up."}
+      </p>
+      <p className="text-zinc-500 mt-2">
+       {finishNote.insight}
+      </p>
+     </div>
+    )}
 
     <div className="flex gap-4 flex-wrap justify-center">
      <button

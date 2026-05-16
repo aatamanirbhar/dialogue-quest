@@ -13,14 +13,23 @@ import {
  PLANS,
  createAccount,
  getAccount,
+ getPlayHistory,
  getTrialCreditsLeft,
  isPremium,
  isPremiumPlus,
  onAccountChange,
  signInAccount,
  signOutAccount,
+ updateEmail,
+ updatePassword,
+ updateProfile,
+ uploadAvatar,
  useTrialCredit
 } from "../lib/account";
+import {
+ getInsight,
+ getPlayerTitle
+} from "../lib/playerStats";
 
 const getPlanLabel = (plan) => {
  if (plan === PLANS.PREMIUM_PLUS) {
@@ -93,6 +102,22 @@ export default function MultiplayerLobby() {
   useState(2);
  const [gateNotice, setGateNotice] =
   useState(null);
+ const [profileOpen, setProfileOpen] =
+  useState(false);
+ const [profileName, setProfileName] =
+  useState("");
+ const [profileEmail, setProfileEmail] =
+  useState("");
+ const [profilePassword, setProfilePassword] =
+  useState("");
+ const [profileAvatarUrl, setProfileAvatarUrl] =
+  useState("");
+ const [profileMessage, setProfileMessage] =
+  useState("");
+ const [avatarUploading, setAvatarUploading] =
+  useState(false);
+ const [playHistory, setPlayHistory] =
+  useState([]);
 
  useEffect(() => {
   const codeParam =
@@ -185,12 +210,110 @@ export default function MultiplayerLobby() {
   if (account?.name && !username) {
    setUsername(account.name);
   }
+  if (account) {
+   setProfileName(account.name || "");
+   setProfileEmail(account.email || "");
+   setProfileAvatarUrl(
+    account.avatarUrl || ""
+   );
+  }
  }, [account, username]);
+
+ useEffect(() => {
+  let active = true;
+
+  const loadHistory = async () => {
+   if (!account) {
+    setPlayHistory([]);
+    return;
+   }
+
+   const history = await getPlayHistory();
+
+   if (active) {
+    setPlayHistory(history);
+   }
+  };
+
+  loadHistory();
+
+  return () => {
+   active = false;
+  };
+ }, [account]);
 
  const trialCreditsLeft =
   getTrialCreditsLeft(account);
  const hasPremium = isPremium(account);
  const hasPremiumPlus = isPremiumPlus(account);
+ const playerTitle = getPlayerTitle(playHistory);
+ const playerInsight = getInsight(playHistory);
+
+ const saveProfile = async (event) => {
+  event.preventDefault();
+  setProfileMessage("");
+
+  try {
+   let nextAccount = await updateProfile({
+    name: profileName,
+    avatarUrl: profileAvatarUrl
+   });
+
+   if (
+    profileEmail.trim() &&
+    profileEmail.trim() !== account.email
+   ) {
+    nextAccount = await updateEmail(
+     profileEmail
+    );
+    setProfileMessage(
+     "Profile saved. Check your new email inbox to confirm the email change."
+    );
+   } else {
+    setProfileMessage("Profile saved.");
+   }
+
+   if (profilePassword) {
+    await updatePassword(profilePassword);
+    setProfilePassword("");
+    setProfileMessage(
+     "Profile saved and password updated."
+    );
+   }
+
+   setAccount(nextAccount);
+   setUsername(nextAccount?.name || username);
+  } catch (error) {
+   setProfileMessage(error.message);
+  }
+ };
+
+ const handleAvatarUpload = async (event) => {
+  const file = event.target.files?.[0];
+
+  if (!file) return;
+
+  setAvatarUploading(true);
+  setProfileMessage("");
+
+  try {
+   const publicUrl = await uploadAvatar(file);
+   setProfileAvatarUrl(publicUrl);
+   const nextAccount = await updateProfile({
+    name: profileName,
+    avatarUrl: publicUrl
+   });
+   setAccount(nextAccount);
+   setProfileMessage(
+    "Profile picture uploaded."
+   );
+  } catch (error) {
+   setProfileMessage(error.message);
+  } finally {
+   setAvatarUploading(false);
+   event.target.value = "";
+  }
+ };
 
  const showEmailGate = () => {
   setGateNotice({
@@ -423,13 +546,15 @@ export default function MultiplayerLobby() {
     await supabase
      .from("room_players")
      .insert({
-      room_code: code,
+     room_code: code,
 
-      player_id: playerId,
+     player_id: playerId,
 
-      username,
+     account_id: account.id,
 
-      score: 0
+     username,
+
+     score: 0
      });
 
    if (playerError) throw playerError;
@@ -440,7 +565,9 @@ export default function MultiplayerLobby() {
     setAccount(nextAccount);
    }
 
-   navigate(`/room/${code}`);
+   navigate(
+    `/room/${code}?account=${account.id}`
+   );
   } catch (error) {
    console.error(error);
    showCreateRoomError(error);
@@ -513,13 +640,17 @@ export default function MultiplayerLobby() {
 
       player_id: playerId,
 
+      account_id: account.id,
+
       username,
 
       score: 0
     });
   }
 
-  navigate(`/room/${upperCode}`);
+  navigate(
+   `/room/${upperCode}?account=${account.id}`
+  );
  };
 
  return (
@@ -651,9 +782,12 @@ export default function MultiplayerLobby() {
       <p className="text-yellow-400 uppercase tracking-[0.25em] text-sm mb-3">
        Realtime Arena
       </p>
-      <h1 className="text-4xl sm:text-5xl font-bold">
+     <h1 className="text-4xl sm:text-5xl font-bold">
        Multiplayer
       </h1>
+      <p className="text-white text-xl mt-4">
+       Welcome back, {account.name || "Player"}.
+      </p>
      <p className="text-zinc-400 mt-4">
        {account.name || account.email} -{" "}
        {getPlanLabel(account.plan)}
@@ -676,7 +810,133 @@ export default function MultiplayerLobby() {
       >
        Sign Out
       </button>
+      <button
+       onClick={() =>
+        setProfileOpen((open) => !open)
+       }
+       className="mt-4 ml-3 bg-yellow-400 text-black border border-yellow-400 px-4 py-2 rounded-lg font-bold"
+      >
+       Profile
+      </button>
      </div>
+
+     {profileOpen && (
+      <div className="border border-zinc-700 bg-zinc-950 rounded-2xl p-5 mb-6">
+       <div className="flex items-center gap-4 mb-5">
+        <div className="h-16 w-16 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center text-2xl font-bold">
+         {profileAvatarUrl ? (
+          <img
+           src={profileAvatarUrl}
+           alt={profileName || "Profile"}
+           className="h-full w-full object-cover"
+          />
+         ) : (
+          (profileName || account.email || "P")
+           .charAt(0)
+           .toUpperCase()
+         )}
+        </div>
+        <div>
+         <p className="text-yellow-300 font-bold">
+          {playerTitle}
+         </p>
+         <p className="text-zinc-400 text-sm">
+          {playerInsight}
+         </p>
+        </div>
+       </div>
+
+       <form
+        onSubmit={saveProfile}
+        className="grid gap-3 mb-6"
+       >
+        <input
+         value={profileName}
+         onChange={(event) =>
+          setProfileName(event.target.value)
+         }
+         placeholder="Display name"
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
+        />
+        <input
+         type="file"
+         accept="image/*"
+         onChange={handleAvatarUpload}
+         disabled={avatarUploading}
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg disabled:opacity-60"
+        />
+        {avatarUploading && (
+         <p className="text-zinc-400">
+          Uploading profile picture...
+         </p>
+        )}
+        <input
+         value={profileEmail}
+         onChange={(event) =>
+          setProfileEmail(event.target.value)
+         }
+         placeholder="Email"
+         type="email"
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
+        />
+        <input
+         value={profilePassword}
+         onChange={(event) =>
+          setProfilePassword(
+           event.target.value
+          )
+         }
+         placeholder="New password"
+         type="password"
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
+        />
+        <button className="bg-yellow-400 text-black p-4 rounded-lg font-bold">
+         Save Profile
+        </button>
+        {profileMessage && (
+         <p className="text-zinc-300">
+          {profileMessage}
+         </p>
+        )}
+       </form>
+
+       <div>
+        <h2 className="text-2xl font-bold mb-3">
+         Match History
+        </h2>
+        {playHistory.length ? (
+         <div className="grid gap-3 max-h-72 overflow-auto pr-1">
+          {playHistory.map((item) => (
+           <div
+            key={item.id}
+            className="bg-zinc-900 border border-zinc-800 rounded-lg p-4"
+           >
+            <div className="flex justify-between gap-3">
+             <span className="capitalize font-bold">
+              {item.mode} {item.category}
+             </span>
+             <span className="text-yellow-300 capitalize">
+              {item.result}
+             </span>
+            </div>
+            <p className="text-zinc-400 text-sm mt-2">
+             Score {item.score} /{" "}
+             {item.total_questions || "-"}
+             {item.room_code
+              ? ` - Room ${item.room_code}`
+              : ""}
+            </p>
+           </div>
+          ))}
+         </div>
+        ) : (
+         <p className="text-zinc-400">
+          Your played matches will appear here after the next solo or multiplayer finish.
+         </p>
+        )}
+       </div>
+      </div>
+     )}
 
     <input
      value={username}

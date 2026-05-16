@@ -11,7 +11,15 @@ const readBody = async (request) => {
 
  const text = Buffer.concat(chunks).toString();
 
- return text ? JSON.parse(text) : {};
+ try {
+  return text ? JSON.parse(text) : {};
+ } catch {
+  const error = new Error(
+   "Invalid payment submission format."
+  );
+  error.statusCode = 400;
+  throw error;
+ }
 };
 
 const sendJson = (response, status, body) => {
@@ -91,6 +99,26 @@ const sendTelegramNotification = async (
 };
 
 module.exports = async (request, response) => {
+ response.setHeader(
+  "Access-Control-Allow-Origin",
+  "*"
+ );
+ response.setHeader(
+  "Access-Control-Allow-Methods",
+  "POST, OPTIONS"
+ );
+ response.setHeader(
+  "Access-Control-Allow-Headers",
+  "Content-Type"
+ );
+
+ if (request.method === "OPTIONS") {
+  sendJson(response, 200, {
+   ok: true
+  });
+  return;
+ }
+
  if (request.method !== "POST") {
   sendJson(response, 405, {
    message: "Method not allowed"
@@ -174,7 +202,7 @@ module.exports = async (request, response) => {
    telegram
   });
  } catch (error) {
-  sendJson(response, 500, {
+  sendJson(response, error.statusCode || 500, {
    message: error.message
   });
  }

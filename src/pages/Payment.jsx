@@ -17,8 +17,7 @@ const plans = [
   upiAmount: 1299,
   period: "lifetime account upgrade",
   audience: "Best for friend groups who host often.",
-  paymentLink:
-   "https://www.paypal.com/paypalme/vikasdubey3811/15",
+  paypalEmail: "vikasdubey3811@gmail.com",
   features: [
    "Unlimited hosted multiplayer rooms",
    "Keep playing after the 2 free-room trial",
@@ -36,8 +35,7 @@ const plans = [
   upiAmount: 2499,
   period: "lifetime host upgrade",
   audience: "Made for parties, classrooms, and bigger game nights.",
-  paymentLink:
-   "https://www.paypal.com/paypalme/vikasdubey3811/29",
+  paypalEmail: "vikasdubey3811@gmail.com",
   features: [
    "Host rooms for up to 20 players",
    "Choose the exact player cap before hosting",
@@ -56,6 +54,18 @@ const getErrorMessage = (error) => {
   error.details?.[0]?.description ||
   "Something went wrong."
  );
+};
+
+const getUpiLink = (plan) => {
+ const params = new URLSearchParams({
+  pa: "8949720403@yapl",
+  pn: "Vikas Dubey",
+  am: String(plan.upiAmount),
+  cu: "INR",
+  tn: `Dialogue Quest ${plan.name}`
+ });
+
+ return `upi://pay?${params.toString()}`;
 };
 
 export default function Payment() {
@@ -77,6 +87,8 @@ export default function Payment() {
   useState("");
  const [paymentMethod, setPaymentMethod] =
   useState("paypal");
+ const [showUpiQr, setShowUpiQr] =
+  useState(false);
 
  useEffect(() => {
   let active = true;
@@ -97,18 +109,6 @@ export default function Payment() {
   };
  }, []);
 
- const getUpiLink = (plan) => {
-  const params = new URLSearchParams({
-   pa: "8949720403@ptyes",
-   pn: "Dialogue Quest",
-   am: String(plan.upiAmount),
-   cu: "INR",
-   tn: `Dialogue Quest ${plan.name}`
-  });
-
-  return `upi://pay?${params.toString()}`;
- };
-
  const openPaymentLink = (
   plan,
   method = "paypal"
@@ -120,16 +120,22 @@ export default function Payment() {
 
   setSelectedPlan(plan);
   setPaymentMethod(method);
-  setPaymentMessage(
-   "After payment, return here and submit the transaction details. Premium activation can take up to 1 day."
-  );
+  setShowUpiQr(method === "upi");
 
-  window.open(
-   method === "upi"
-    ? getUpiLink(plan)
-    : plan.paymentLink,
-   "_blank",
-   "noopener,noreferrer"
+  if (method === "upi") {
+   setPaymentMessage(
+    `Opening UPI for ${plan.upiPrice}. If your device blocks the request, scan the QR code below and submit the UPI reference ID after payment.`
+   );
+   window.open(
+    getUpiLink(plan),
+    "_blank",
+    "noopener,noreferrer"
+   );
+   return;
+  }
+
+  setPaymentMessage(
+   `Send ${plan.price} to PayPal email ${plan.paypalEmail}. After payment, submit the PayPal transaction ID or payer email here.`
   );
  };
 
@@ -179,7 +185,17 @@ export default function Payment() {
      })
     }
    );
-   const payload = await response.json();
+   const text = await response.text();
+   let payload = {};
+
+   try {
+    payload = text ? JSON.parse(text) : {};
+   } catch {
+    payload = {
+     message:
+      "Payment details could not be submitted because the server returned an invalid response. Please try again after deployment or contact support with your transaction ID."
+    };
+   }
 
    if (!response.ok) {
     throw new Error(
@@ -243,6 +259,22 @@ export default function Payment() {
       {paymentMessage && (
        <div className="border border-zinc-700 bg-zinc-900 text-zinc-100 rounded-lg p-4 mb-6">
         {paymentMessage}
+       </div>
+      )}
+
+      {showUpiQr && (
+       <div className="border border-zinc-800 bg-zinc-900 rounded-2xl p-5 mb-6">
+        <p className="text-yellow-300 uppercase tracking-[0.25em] text-xs mb-3">
+         UPI QR
+        </p>
+        <img
+         src="/upi-qr.jpeg"
+         alt="UPI QR code for Vikas Dubey"
+         className="w-full max-w-sm rounded-lg border border-zinc-700 bg-white"
+        />
+        <p className="text-zinc-400 mt-4">
+         UPI ID: 8949720403@yapl
+        </p>
        </div>
       )}
 
@@ -398,8 +430,8 @@ export default function Payment() {
             : "bg-yellow-400 text-black"
           }`}
          >
-          PayPal - {plan.price}
-         </button>
+         PayPal - {plan.price}
+        </button>
 
          <button
           onClick={() =>

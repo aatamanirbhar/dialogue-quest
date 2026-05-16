@@ -13,7 +13,9 @@ const defaultProfile = {
  email: "",
  plan: PLANS.FREE,
  roomsCreated: 0,
- paidAt: null
+ paidAt: null,
+ emailConfirmed: false,
+ avatarUrl: ""
 };
 
 const mapProfile = (profile, user) => ({
@@ -27,7 +29,17 @@ const mapProfile = (profile, user) => ({
  plan: profile?.plan || PLANS.FREE,
  roomsCreated:
   Number(profile?.rooms_created || 0),
- paidAt: profile?.paid_at || null
+ paidAt: profile?.paid_at || null,
+ emailConfirmed:
+  Boolean(
+   profile?.email_confirmed_at ||
+    user?.email_confirmed_at ||
+    user?.confirmed_at
+  ),
+ avatarUrl:
+  profile?.avatar_url ||
+  user?.user_metadata?.avatar_url ||
+  ""
 });
 
 export async function getSession() {
@@ -68,10 +80,17 @@ export async function ensureProfile(user) {
  const { data: createdProfile, error } =
   await supabase
    .from("profiles")
-   .insert({
+   .upsert({
     id: user.id,
+    email: user.email,
+    name:
+     user.user_metadata?.name ||
+     user.email?.split("@")[0] ||
+     "Player",
     plan: PLANS.FREE,
     rooms_created: 0
+   }, {
+    onConflict: "id"
    })
    .select("*")
    .single();
@@ -84,20 +103,36 @@ export async function ensureProfile(user) {
  return mapProfile(createdProfile, user);
 }
 
+export async function refreshAccount() {
+ const session = await getSession();
+ const user = session?.user;
+
+ if (!user) return null;
+
+ const { data: refreshedUser } =
+  await supabase.auth.getUser();
+
+ return ensureProfile(
+  refreshedUser?.user || user
+ );
+}
+
 export async function createAccount({
  name,
  email,
  password
 }) {
+ const cleanName = name.trim();
+ const cleanEmail = email.trim();
  const { data, error } =
   await supabase.auth.signUp({
-   email: email.trim(),
+   email: cleanEmail,
    password,
    options: {
     emailRedirectTo:
-     `${window.location.origin}/multiplayer?auth=signin`,
+     `${window.location.origin}/multiplayer?auth=confirmed`,
     data: {
-     name: name.trim()
+     name: cleanName
     }
    }
   });
@@ -106,7 +141,17 @@ export async function createAccount({
 
  if (!data.user) return null;
 
- return ensureProfile(data.user);
+ return mapProfile(
+  null,
+  {
+   ...data.user,
+   email: data.user.email || cleanEmail,
+   user_metadata: {
+    ...(data.user.user_metadata || {}),
+    name: cleanName
+   }
+  }
+ );
 }
 
 export async function signInAccount({
@@ -122,6 +167,109 @@ export async function signInAccount({
  if (error) throw error;
 
  return ensureProfile(data.user);
+}
+
+export async function updateProfile({
+ name,
+ avatarUrl
+}) {
+ const session = await getSession();
+ const user = session?.user;
+
+ if (!user) return null;
+
+ const updates = {};
+
+ if (typeof name === "string") {
+  updates.name = name.trim();
+ }
+
+ if (typeof avatarUrl === "string") {
+  updates.avatar_url = avatarUrl.trim();
+ }
+
+ const { data, error } = await supabase
+  .from("profiles")
+  .upsert({
+   id: user.id,
+   email: user.email,
+   ...updates,
+   updated_at: new Date().toISOString()
+  }, {
+   onConflict: "id"
+  })
+  .select("*")
+  .single();
+
+ if (error) throw error;
+
+ if (updates.name || updates.avatar_url) {
+  await supabase.auth.updateUser({
+   data: {
+    ...(updates.name
+     ? { name: updates.name }
+     : {}),
+    ...(updates.avatar_url
+     ? { avatar_url: updates.avatar_url }
+     : {})
+   }
+  });
+ }
+
+ window.dispatchEvent(
+  new Event("dq-account-change")
+ );
+
+ return mapProfile(data, user);
+}
+
+export async function uploadAvatar(file) {
+ const session = await getSession();
+ const user = session?.user;
+
+ if (!user) return null;
+ if (!file) return null;
+
+ const extension =
+  file.name?.split(".").pop()?.toLowerCase() ||
+  "jpg";
+ const path = `${user.id}/avatar-${Date.now()}.${extension}`;
+
+ const { error: uploadError } =
+  await supabase.storage
+   .from("avatars")
+   .upload(path, file, {
+    cacheControl: "3600",
+    upsert: true
+   });
+
+ if (uploadError) throw uploadError;
+
+ const { data } = supabase.storage
+  .from("avatars")
+  .getPublicUrl(path);
+
+ return data.publicUrl;
+}
+
+export async function updateEmail(email) {
+ const cleanEmail = email.trim();
+ const { data, error } =
+  await supabase.auth.updateUser({
+   email: cleanEmail
+  });
+
+ if (error) throw error;
+
+ return ensureProfile(data.user);
+}
+
+export async function updatePassword(password) {
+ const { error } = await supabase.auth.updateUser({
+  password
+ });
+
+ if (error) throw error;
 }
 
 export async function signOutAccount() {
@@ -163,21 +311,49 @@ export async function upgradeAccount(plan) {
 
  if (!user) return null;
 
- const { data, error } = await supabase
+ const paidAt = new Date().toISOString();
+ const fullPaymentUpdate = {
+  id: user.id,
+  email: user.email,
+  plan,
+  paid_at: paidAt,
+  payment_status: "paid",
+  paid_plan: plan,
+  paid_amount:
+   plan === PLANS.PREMIUM ? 15 : 29
+ };
+ const corePaymentUpdate = {
+  id: user.id,
+  email: user.email,
+  plan,
+  rooms_created: 0
+ };
+
+ let { data, error } = await supabase
   .from("profiles")
-  .upsert({
-   id: user.id,
-   plan,
-   paid_at: new Date().toISOString(),
-   payment_status: "paid",
-   paid_plan: plan,
-   paid_amount:
-    plan === PLANS.PREMIUM ? 15 : 29
-  }, {
+  .upsert(fullPaymentUpdate, {
    onConflict: "id"
   })
   .select("*")
   .maybeSingle();
+
+ if (
+  error &&
+  /schema cache|paid_amount|paid_at|paid_plan|payment_status/i.test(
+   error.message || ""
+  )
+ ) {
+  const fallback = await supabase
+   .from("profiles")
+   .upsert(corePaymentUpdate, {
+    onConflict: "id"
+   })
+   .select("*")
+   .maybeSingle();
+
+  data = fallback.data;
+  error = fallback.error;
+ }
 
  if (error) throw error;
 
@@ -185,7 +361,65 @@ export async function upgradeAccount(plan) {
   new Event("dq-account-change")
  );
 
- return mapProfile(data, user);
+  return mapProfile(data, user);
+}
+
+export async function recordPlayHistory(entry) {
+ const session = await getSession();
+ const user = session?.user;
+
+ if (!user) return null;
+
+ const payload = {
+  user_id: user.id,
+  mode: entry.mode,
+  category: entry.category || null,
+  room_code: entry.roomCode || null,
+  score: Number(entry.score || 0),
+  total_questions:
+   Number(entry.totalQuestions || 0),
+  result: entry.result || null,
+  opponent_count:
+   Number(entry.opponentCount || 0),
+  winner_name: entry.winnerName || null,
+  metadata: entry.metadata || {}
+ };
+
+ const { data, error } = await supabase
+  .from("play_history")
+  .insert(payload)
+  .select("*")
+  .single();
+
+ if (error) {
+  console.error(error);
+  return null;
+ }
+
+ return data;
+}
+
+export async function getPlayHistory(limit = 30) {
+ const session = await getSession();
+ const user = session?.user;
+
+ if (!user) return [];
+
+ const { data, error } = await supabase
+  .from("play_history")
+  .select("*")
+  .eq("user_id", user.id)
+  .order("created_at", {
+   ascending: false
+  })
+  .limit(limit);
+
+ if (error) {
+  console.error(error);
+  return [];
+ }
+
+ return data || [];
 }
 
 export async function useTrialCredit(account) {
