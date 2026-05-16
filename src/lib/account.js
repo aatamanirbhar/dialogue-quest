@@ -21,12 +21,17 @@ const defaultProfile = {
 const mapProfile = (profile, user) => ({
  ...defaultProfile,
  id: user?.id || profile?.id,
- name:
+name:
   profile?.name ||
+  profile?.username ||
   user?.user_metadata?.name ||
   "",
  email: profile?.email || user?.email || "",
- plan: profile?.plan || PLANS.FREE,
+ plan:
+  profile?.plan ||
+  (profile?.is_premium
+   ? PLANS.PREMIUM
+   : PLANS.FREE),
  roomsCreated:
   Number(profile?.rooms_created || 0),
  paidAt: profile?.paid_at || null,
@@ -87,7 +92,12 @@ export async function ensureProfile(user) {
      user.user_metadata?.name ||
      user.email?.split("@")[0] ||
      "Player",
+    username:
+     user.user_metadata?.name ||
+     user.email?.split("@")[0] ||
+     "Player",
     plan: PLANS.FREE,
+    is_premium: false,
     rooms_created: 0
    }, {
     onConflict: "id"
@@ -154,6 +164,20 @@ export async function createAccount({
  );
 }
 
+export async function resendConfirmationEmail(email) {
+ const cleanEmail = email.trim();
+ const { error } = await supabase.auth.resend({
+  type: "signup",
+  email: cleanEmail,
+  options: {
+   emailRedirectTo:
+    `${window.location.origin}/multiplayer?auth=confirmed`
+  }
+ });
+
+ if (error) throw error;
+}
+
 export async function signInAccount({
  email,
  password
@@ -182,6 +206,7 @@ export async function updateProfile({
 
  if (typeof name === "string") {
   updates.name = name.trim();
+  updates.username = name.trim();
  }
 
  if (typeof avatarUrl === "string") {
@@ -316,6 +341,7 @@ export async function upgradeAccount(plan) {
   id: user.id,
   email: user.email,
   plan,
+  is_premium: true,
   paid_at: paidAt,
   payment_status: "paid",
   paid_plan: plan,
@@ -326,6 +352,7 @@ export async function upgradeAccount(plan) {
   id: user.id,
   email: user.email,
   plan,
+  is_premium: true,
   rooms_created: 0
  };
 

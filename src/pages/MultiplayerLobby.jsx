@@ -18,6 +18,7 @@ import {
  isPremium,
  isPremiumPlus,
  onAccountChange,
+ resendConfirmationEmail,
  signInAccount,
  signOutAccount,
  updateEmail,
@@ -76,6 +77,8 @@ export default function MultiplayerLobby() {
   useState("signin");
  const [authLoading, setAuthLoading] =
   useState(true);
+ const [authMessage, setAuthMessage] =
+  useState("");
  const [accountName, setAccountName] =
   useState("");
  const [accountEmail, setAccountEmail] =
@@ -320,9 +323,33 @@ export default function MultiplayerLobby() {
    eyebrow: "Email confirmation required",
    title: "Confirm your email to create rooms.",
    body:
-    "Room hosting opens after your email is verified. Check your inbox for the Supabase confirmation link, then come back and create your room.",
-   primaryLabel: "Got it",
-   onPrimary: () => setGateNotice(null)
+    "Room hosting opens after your email is verified. Check your inbox and spam folder for the Supabase confirmation link.",
+   primaryLabel: "Resend Email",
+   secondaryLabel: "Got it",
+   onPrimary: async () => {
+    try {
+     await resendConfirmationEmail(
+      account.email
+     );
+     setGateNotice({
+      eyebrow: "Email sent",
+      title: "Check your inbox.",
+      body:
+       "We asked Supabase to send another confirmation email. Also check spam or promotions.",
+      primaryLabel: "Close",
+      onPrimary: () => setGateNotice(null)
+     });
+    } catch (error) {
+     setGateNotice({
+      eyebrow: "Email not sent",
+      title: "Supabase rejected the resend.",
+      body: error.message,
+      primaryLabel: "Close",
+      onPrimary: () => setGateNotice(null)
+     });
+    }
+   },
+   onSecondary: () => setGateNotice(null)
   });
  };
 
@@ -415,6 +442,7 @@ export default function MultiplayerLobby() {
   }
 
   setAuthLoading(true);
+  setAuthMessage("");
 
   try {
    const nextAccount =
@@ -433,8 +461,16 @@ export default function MultiplayerLobby() {
    setUsername(
     nextAccount?.name || accountName.trim()
    );
+   if (
+    authMode === "signup" &&
+    !nextAccount?.emailConfirmed
+   ) {
+    setAuthMessage(
+     "Account created. Check your inbox and spam folder for the confirmation email before creating rooms."
+    );
+   }
   } catch (error) {
-   alert(error.message);
+   setAuthMessage(error.message);
   } finally {
    setAuthLoading(false);
   }
@@ -716,6 +752,12 @@ export default function MultiplayerLobby() {
        Multiplayer includes 2 free hosted rooms. After that, Premium unlocks unlimited game room creation and playing with friends.
       </p>
 
+      {authMessage && (
+       <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-100 rounded-lg p-4 mb-5">
+        {authMessage}
+       </div>
+      )}
+
       {authMode === "signup" && (
        <input
         value={accountName}
@@ -769,8 +811,30 @@ export default function MultiplayerLobby() {
       >
        {authMode === "signup"
         ? "I already have an account"
-        : "Create a new account"}
+       : "Create a new account"}
       </button>
+
+      {authMode === "signup" &&
+       accountEmail.trim() && (
+        <button
+         type="button"
+         onClick={async () => {
+          try {
+           await resendConfirmationEmail(
+            accountEmail
+           );
+           setAuthMessage(
+            "Confirmation email requested again. Check inbox, spam, and promotions."
+           );
+          } catch (error) {
+           setAuthMessage(error.message);
+          }
+         }}
+         className="w-full bg-zinc-950 border border-zinc-700 p-4 rounded-lg font-bold mt-4"
+        >
+         Resend confirmation email
+        </button>
+       )}
      </form>
     ) : (
     <div
@@ -797,9 +861,42 @@ export default function MultiplayerLobby() {
         } left`}
       </p>
       {!account.emailConfirmed && (
-       <p className="text-yellow-300 mt-3">
-        Confirm your email before creating rooms.
-       </p>
+       <div className="text-yellow-300 mt-3">
+        <p>
+         Confirm your email before creating rooms.
+        </p>
+        <button
+         onClick={async () => {
+          try {
+           await resendConfirmationEmail(
+            account.email
+           );
+           setGateNotice({
+            eyebrow: "Email sent",
+            title: "Check your inbox.",
+            body:
+             "We asked Supabase to send another confirmation email. Also check spam or promotions.",
+            primaryLabel: "Close",
+            onPrimary: () =>
+             setGateNotice(null)
+           });
+          } catch (error) {
+           setGateNotice({
+            eyebrow: "Email not sent",
+            title:
+             "Supabase rejected the resend.",
+            body: error.message,
+            primaryLabel: "Close",
+            onPrimary: () =>
+             setGateNotice(null)
+           });
+          }
+         }}
+         className="mt-3 bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg font-bold text-white"
+        >
+         Resend confirmation email
+        </button>
+       </div>
       )}
       <button
        onClick={async () => {
