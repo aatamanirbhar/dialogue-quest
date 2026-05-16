@@ -1,12 +1,54 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, {
+ useEffect,
+ useState
+} from "react";
+import {
+ useNavigate,
+ useSearchParams
+} from "react-router-dom";
 
 import { supabase } from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
+import {
+ PLANS,
+ createAccount,
+ getAccount,
+ getTrialCreditsLeft,
+ isPremium,
+ isPremiumPlus,
+ onAccountChange,
+ signInAccount,
+ signOutAccount,
+ useTrialCredit
+} from "../lib/account";
+
+const getPlanLabel = (plan) => {
+ if (plan === PLANS.PREMIUM_PLUS) {
+  return "Premium Plus";
+ }
+
+ if (plan === PLANS.PREMIUM) {
+  return "Premium";
+ }
+
+ return "Free Trial";
+};
 
 export default function MultiplayerLobby() {
  const navigate = useNavigate();
+ const [searchParams] = useSearchParams();
 
+ const [account, setAccount] = useState(null);
+ const [authMode, setAuthMode] =
+  useState("signin");
+ const [authLoading, setAuthLoading] =
+  useState(true);
+ const [accountName, setAccountName] =
+  useState("");
+ const [accountEmail, setAccountEmail] =
+  useState("");
+ const [accountPassword, setAccountPassword] =
+  useState("");
  const [username, setUsername] = useState("");
  const [roomCode, setRoomCode] = useState("");
  const [selectedCategory, setSelectedCategory] =
@@ -21,6 +63,109 @@ export default function MultiplayerLobby() {
  const [endlessMode, setEndlessMode] =
   useState(false);
 
+ const [maxPlayers, setMaxPlayers] =
+  useState(2);
+
+ useEffect(() => {
+  const codeParam =
+   searchParams.get("room");
+  const usernameParam =
+   searchParams.get("username");
+
+  if (codeParam) {
+   setRoomCode(codeParam.toUpperCase());
+  }
+
+  if (usernameParam) {
+   setUsername(usernameParam);
+  }
+ }, [searchParams]);
+
+ useEffect(() => {
+  let active = true;
+
+  const loadAccount = async () => {
+   const nextAccount = await getAccount();
+
+   if (active) {
+    setAccount(nextAccount);
+    setAuthLoading(false);
+   }
+  };
+
+  loadAccount();
+
+  const unsubscribe = onAccountChange(
+   (nextAccount) => {
+    if (active) {
+     setAccount(nextAccount);
+     setAuthLoading(false);
+    }
+   }
+  );
+
+  return () => {
+   active = false;
+   unsubscribe();
+  };
+ }, []);
+
+ useEffect(() => {
+  if (account?.name && !username) {
+   setUsername(account.name);
+  }
+ }, [account, username]);
+
+ const trialCreditsLeft =
+  getTrialCreditsLeft(account);
+ const hasPremium = isPremium(account);
+ const hasPremiumPlus = isPremiumPlus(account);
+
+ const handleAuth = async (event) => {
+  event.preventDefault();
+
+  if (
+   !accountEmail.trim() ||
+   !accountPassword
+  ) {
+   alert("Enter email and password");
+   return;
+  }
+
+  if (
+   authMode === "signup" &&
+   !accountName.trim()
+  ) {
+   alert("Enter your name");
+   return;
+  }
+
+  setAuthLoading(true);
+
+  try {
+   const nextAccount =
+    authMode === "signup"
+     ? await createAccount({
+        name: accountName,
+        email: accountEmail,
+        password: accountPassword
+       })
+     : await signInAccount({
+        email: accountEmail,
+        password: accountPassword
+       });
+
+   setAccount(nextAccount);
+   setUsername(
+    nextAccount?.name || accountName.trim()
+   );
+  } catch (error) {
+   alert(error.message);
+  } finally {
+   setAuthLoading(false);
+  }
+ };
+
  const handleLobbyKeyDown = (event) => {
   if (event.key !== "Enter") return;
 
@@ -33,6 +178,24 @@ export default function MultiplayerLobby() {
  };
 
  const createRoom = async () => {
+  if (!account) {
+   alert(
+    "Login or create an account to use multiplayer."
+   );
+   return;
+  }
+
+  if (
+   !hasPremium &&
+   trialCreditsLeft <= 0
+  ) {
+   alert(
+    "Your 2 free multiplayer rooms are used. Upgrade to Premium for unlimited room creation."
+   );
+   navigate("/payment");
+   return;
+  }
+
   if (!username) {
    alert("Enter username");
    return;
@@ -69,7 +232,17 @@ export default function MultiplayerLobby() {
 
     show_trivia: true,
 
-    processing_answer: false
+    processing_answer: false,
+
+    max_players:
+     hasPremiumPlus ? maxPlayers : 2,
+
+    plan_required:
+     hasPremiumPlus
+      ? PLANS.PREMIUM_PLUS
+      : hasPremium
+       ? PLANS.PREMIUM
+       : PLANS.FREE
    });
 
   if (error) {
@@ -86,13 +259,26 @@ export default function MultiplayerLobby() {
 
     username,
 
-    score: 0
+   score: 0
    });
+
+  if (!hasPremium) {
+   const nextAccount =
+    await useTrialCredit(account);
+   setAccount(nextAccount);
+  }
 
   navigate(`/room/${code}`);
  };
 
  const joinRoom = async () => {
+  if (!account) {
+   alert(
+    "Login or create an account to join multiplayer."
+   );
+   return;
+  }
+
   if (!username) {
    alert("Enter username");
    return;
@@ -125,6 +311,24 @@ export default function MultiplayerLobby() {
    .eq("player_id", playerId)
    .maybeSingle();
 
+  const { count: playerCount } =
+   await supabase
+    .from("room_players")
+    .select("*", {
+     count: "exact",
+     head: true
+    })
+   .eq("room_code", upperCode);
+
+  if (
+   !existing &&
+   playerCount >=
+   Number(room.max_players || 2)
+  ) {
+   alert("This room is full");
+   return;
+  }
+
   if (!existing) {
    await supabase
     .from("room_players")
@@ -143,22 +347,121 @@ export default function MultiplayerLobby() {
  };
 
  return (
-  <div className="min-h-screen bg-black text-white flex items-center justify-center p-6">
+  <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 sm:p-6">
 
-   <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-6 w-full max-w-6xl">
+   <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-5 sm:gap-6 w-full max-w-6xl">
 
+    {authLoading ? (
+     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8">
+      <p className="text-zinc-400">
+       Checking account...
+      </p>
+     </div>
+    ) : !account ? (
+     <form
+      onSubmit={handleAuth}
+      className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8"
+     >
+      <p className="text-yellow-400 uppercase tracking-[0.25em] text-sm mb-3">
+       Account Required
+      </p>
+
+      <h1 className="text-4xl sm:text-5xl font-bold mb-5">
+       {authMode === "signup"
+        ? "Create an account"
+        : "Login to multiplayer"}
+      </h1>
+
+      <p className="text-zinc-400 leading-relaxed mb-8">
+       Multiplayer includes 2 free hosted rooms. After that, Premium unlocks unlimited game room creation and playing with friends.
+      </p>
+
+      {authMode === "signup" && (
+       <input
+        value={accountName}
+        onChange={(e) =>
+         setAccountName(e.target.value)
+        }
+        placeholder="Name"
+        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
+       />
+      )}
+
+      <input
+       value={accountEmail}
+       onChange={(e) =>
+        setAccountEmail(e.target.value)
+       }
+       placeholder="Email"
+       type="email"
+       className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
+      />
+
+      <input
+       value={accountPassword}
+       onChange={(e) =>
+        setAccountPassword(e.target.value)
+       }
+       placeholder="Password"
+       type="password"
+       className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
+      />
+
+      <button
+       type="submit"
+       className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold"
+      >
+       {authMode === "signup"
+        ? "Create Account"
+        : "Login"}
+      </button>
+
+      <button
+       type="button"
+       onClick={() =>
+        setAuthMode(
+         authMode === "signup"
+          ? "signin"
+          : "signup"
+        )
+       }
+       className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg font-bold mt-4"
+      >
+       {authMode === "signup"
+        ? "I already have an account"
+        : "Create a new account"}
+      </button>
+     </form>
+    ) : (
     <div
      onKeyDown={handleLobbyKeyDown}
-     className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8"
+     className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8"
     >
 
      <div className="mb-8">
       <p className="text-yellow-400 uppercase tracking-[0.25em] text-sm mb-3">
        Realtime Arena
       </p>
-      <h1 className="text-5xl font-bold">
-        Multiplayer
+      <h1 className="text-4xl sm:text-5xl font-bold">
+       Multiplayer
       </h1>
+      <p className="text-zinc-400 mt-4">
+       {account.name || account.email} -{" "}
+       {getPlanLabel(account.plan)}
+       {account.plan === PLANS.FREE &&
+        ` - ${trialCreditsLeft} free room${
+         trialCreditsLeft === 1 ? "" : "s"
+        } left`}
+      </p>
+      <button
+       onClick={async () => {
+        await signOutAccount();
+        setAccount(null);
+       }}
+       className="mt-4 bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg font-bold"
+      >
+       Sign Out
+      </button>
      </div>
 
     <input
@@ -240,15 +543,47 @@ export default function MultiplayerLobby() {
     >
       {endlessMode
        ? "Endless Mode Enabled"
-       : "Enable Endless Mode"}
+      : "Enable Endless Mode"}
     </button>
+
+    {hasPremiumPlus && (
+     <select
+      value={maxPlayers}
+      onChange={(e) =>
+       setMaxPlayers(
+        Number(e.target.value)
+       )
+      }
+      className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
+     >
+      {Array.from(
+       { length: 19 },
+       (_, index) => index + 2
+      ).map((count) => (
+       <option
+        key={count}
+        value={count}
+       >
+        Up to {count} Players
+       </option>
+      ))}
+     </select>
+    )}
 
     <button
      onClick={createRoom}
-     className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold mb-8"
+     className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold mb-6"
     >
       Create Room
     </button>
+
+    <div className="flex items-center gap-3 mb-5">
+     <div className="h-px bg-zinc-800 flex-1" />
+     <span className="text-zinc-500 text-sm">
+      or join a friend's room
+     </span>
+     <div className="h-px bg-zinc-800 flex-1" />
+    </div>
 
     <input
      value={roomCode}
@@ -263,30 +598,31 @@ export default function MultiplayerLobby() {
      onClick={joinRoom}
      className="w-full bg-white text-black p-4 rounded-lg font-bold"
     >
-      Join Room
+     Join Room
     </button>
     </div>
+    )}
 
-    <div className="bg-white text-black rounded-2xl p-8 flex flex-col justify-between">
+    <div className="bg-white text-black rounded-2xl p-5 sm:p-8 flex flex-col justify-between">
      <div>
       <p className="uppercase tracking-[0.25em] text-sm text-zinc-500 mb-4">
        Premium Wall Ready
       </p>
 
       <h2 className="text-4xl font-bold mb-5">
-       Turn game nights into a paid arena.
+       Premium unlocks the full arena.
       </h2>
 
       <p className="text-zinc-600 leading-relaxed mb-8">
-       Use this panel as the premium gate for private rooms, longer competitions, hosted events, and creator packs.
+       Start with 2 free hosted rooms. Upgrade once for unlimited multiplayer, or choose Premium Plus for large rooms and host controls.
       </p>
 
       <div className="grid gap-3 mb-8">
        {[
-        "Private rooms and invite codes",
-        "Longer round packs and timeless mode",
-        "Leaderboard bragging rights",
-        "Future Stripe or PayPal checkout hook"
+        "Premium: $15 one-time payment",
+        "Unlimited room creation and friend play",
+        "Premium Plus: up to 20 players",
+        "Premium Plus: skip/end questions and future games"
        ].map((feature) => (
         <div
          key={feature}

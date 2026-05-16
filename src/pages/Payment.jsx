@@ -1,45 +1,89 @@
-import React from "react";
+import React, {
+ useEffect,
+ useState
+} from "react";
 import { useNavigate } from "react-router-dom";
+import {
+ PLANS,
+ getAccount,
+ upgradeAccount
+} from "../lib/account";
 
 const plans = [
  {
-  name: "Host Pass",
-  price: "$5",
-  period: "lifetime starter",
+  name: "Premium",
+  price: "$15",
+  period: "one-time payment",
   features: [
-   "Private multiplayer rooms",
-   "Custom timers",
-   "Replay in the same room",
-   "Room cleanup controls"
+   "Unlimited multiplayer room creation",
+   "Play with friends without trial limits",
+   "Premium account status",
+   "Private rooms and invite codes"
   ],
-  highlight: true
+  highlight: true,
+  plan: PLANS.PREMIUM
  },
  {
-  name: "Event Night",
-  price: "$19",
-  period: "per event",
+  name: "Premium Plus",
+  price: "$29",
+  period: "one-time upgrade",
   features: [
-   "Bigger room package",
-   "Long-form competitions",
-   "Premium categories",
-   "Sponsor-ready leaderboard"
-  ]
- },
- {
-  name: "Creator Club",
-  price: "$49",
-  period: "monthly",
-  features: [
-   "Custom quote packs",
-   "Featured room branding",
-   "Priority game templates",
-   "Future analytics hooks"
-  ]
+   "Create rooms for up to 20 players",
+   "Choose player limit from a dropdown",
+   "Host can skip/end current question",
+   "Access to upcoming features like fill in the song lyrics"
+  ],
+  plan: PLANS.PREMIUM_PLUS
  }
 ];
 
 export default function Payment() {
  const navigate = useNavigate();
+ const [account, setAccount] = useState(null);
+ const [loading, setLoading] =
+  useState(true);
+ const [upgradingPlan, setUpgradingPlan] =
+  useState(null);
+
+ useEffect(() => {
+  let active = true;
+
+  const loadAccount = async () => {
+   const nextAccount = await getAccount();
+
+   if (active) {
+    setAccount(nextAccount);
+    setLoading(false);
+   }
+  };
+
+  loadAccount();
+
+  return () => {
+   active = false;
+  };
+ }, []);
+
+ const handleUpgrade = async (plan) => {
+  if (!account) {
+   alert(
+    "Login or create an account before upgrading."
+   );
+   navigate("/multiplayer");
+   return;
+  }
+
+  setUpgradingPlan(plan);
+
+  try {
+   await upgradeAccount(plan);
+   navigate("/multiplayer");
+  } catch (error) {
+   alert(error.message);
+  } finally {
+   setUpgradingPlan(null);
+  }
+ };
 
  return (
   <div className="min-h-screen bg-black text-white">
@@ -62,17 +106,28 @@ export default function Payment() {
       </h1>
 
       <p className="text-zinc-400 text-lg leading-relaxed mb-8">
-       This page is ready for a real checkout provider. Drop in Stripe, PayPal, or your own entitlement check when you are ready to enforce access.
+       Premium is a one-time $15 payment that makes the account premium forever. Premium Plus adds large rooms, host question controls, and upcoming feature access.
       </p>
 
-      <a
-       href="https://www.paypal.com/paypalme/vikasdubey3811/5"
-       target="_blank"
-       rel="noreferrer"
-       className="inline-block bg-yellow-400 text-black px-8 py-4 rounded-lg font-bold"
+      <p className="text-zinc-500 mb-8">
+       {loading
+        ? "Checking account..."
+        : account
+         ? `Signed in as ${account.email}. Current plan: ${account.plan}.`
+         : "You need to login before upgrading."}
+      </p>
+
+      <button
+       onClick={() =>
+        handleUpgrade(PLANS.PREMIUM)
+       }
+       disabled={loading || upgradingPlan}
+       className="bg-yellow-400 text-black px-8 py-4 rounded-lg font-bold"
       >
-       Unlock Lifetime Premium
-      </a>
+       {upgradingPlan === PLANS.PREMIUM
+        ? "Storing Payment..."
+        : "Pay $15 and Unlock Premium"}
+      </button>
      </section>
 
      <section className="grid gap-5">
@@ -103,8 +158,24 @@ export default function Payment() {
 
          <div className="text-5xl font-bold">
           {plan.price}
-         </div>
         </div>
+       </div>
+
+       <button
+       onClick={() =>
+        handleUpgrade(plan.plan)
+       }
+       disabled={loading || upgradingPlan}
+       className={`w-full mb-5 p-4 rounded-lg font-bold ${
+         plan.highlight
+          ? "bg-black text-white"
+          : "bg-yellow-400 text-black"
+       }`}
+      >
+        {upgradingPlan === plan.plan
+         ? "Storing Payment..."
+         : `Upgrade to ${plan.name}`}
+       </button>
 
         <div className="grid md:grid-cols-2 gap-3">
          {plan.features.map((feature) => (

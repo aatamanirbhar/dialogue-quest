@@ -12,10 +12,19 @@ import {
 
 import { supabase } from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
+import {
+ getAccount,
+ isPremiumPlus,
+ onAccountChange
+} from "../lib/account";
 
 const DEFAULT_QUESTION_DURATION = 15;
 const TRIVIA_DURATION = 5000;
 const ENDLESS_BATCH_SIZE = 50;
+const FAST_BONUS_SECONDS = 8;
+const CORRECT_POINTS = 10;
+const FAST_BONUS_POINTS = 5;
+const WRONG_PENALTY_POINTS = 3;
 
 const parseSupabaseTime = (value) => {
  if (!value) return null;
@@ -130,9 +139,13 @@ export default function Room() {
  const [message, setMessage] = useState("");
  const [loading, setLoading] = useState(true);
  const [notice, setNotice] = useState("");
+ const [activityNotices, setActivityNotices] =
+  useState([]);
+ const [account, setAccount] = useState(null);
  const [now, setNow] = useState(Date.now());
 
  const advancingRef = useRef(false);
+ const previousPlayersRef = useRef([]);
 
  const me = useMemo(() => {
   return players.find(
@@ -141,6 +154,50 @@ export default function Room() {
  }, [players, playerId]);
 
  const isHost = room?.host_id === playerId;
+ const premiumPlusHost =
+  isHost && isPremiumPlus(account);
+ const canUseQuestionControls =
+  players.length <= 2 || premiumPlusHost;
+
+ useEffect(() => {
+  let active = true;
+
+  const loadAccount = async () => {
+   const nextAccount = await getAccount();
+
+   if (active) {
+    setAccount(nextAccount);
+   }
+  };
+
+  loadAccount();
+
+  const unsubscribe = onAccountChange(
+   (nextAccount) => {
+    if (active) setAccount(nextAccount);
+   }
+  );
+
+  return () => {
+   active = false;
+   unsubscribe();
+  };
+ }, []);
+
+ const pushActivityNotice = (text) => {
+  const id = crypto.randomUUID();
+
+  setActivityNotices((current) => [
+   ...current.slice(-2),
+   { id, text }
+  ]);
+
+  setTimeout(() => {
+   setActivityNotices((current) =>
+    current.filter((item) => item.id !== id)
+   );
+  }, 2800);
+ };
 
  const fetchRoom = async () => {
   const { data } = await supabase
@@ -158,10 +215,52 @@ export default function Room() {
    .select("*")
    .eq("room_code", code)
    .order("score", {
-    ascending: false
+   ascending: false
    });
 
-  setPlayers(data || []);
+  const nextPlayers = data || [];
+  const previousPlayers =
+   previousPlayersRef.current;
+
+  if (previousPlayers.length) {
+   nextPlayers.forEach((player) => {
+    const previous = previousPlayers.find(
+     (item) => item.id === player.id
+    );
+
+    if (
+     !previous ||
+     previous.answered_current ||
+     !player.answered_current
+    ) {
+     return;
+    }
+
+    if (player.current_answer_correct) {
+     const bonus =
+      Number(player.last_answer_bonus || 0);
+
+     pushActivityNotice(
+      `${player.username} answered correctly${
+       bonus > 0
+        ? ` and earned a +${bonus} superfast bonus`
+        : ""
+      }.`
+     );
+     return;
+    }
+
+    pushActivityNotice(
+     `${player.username} answered "${
+      player.last_answer_text || "unknown"
+     }" - incorrect -${WRONG_PENALTY_POINTS}.`
+    );
+   });
+  }
+
+  previousPlayersRef.current =
+   nextPlayers;
+  setPlayers(nextPlayers);
  };
 
  const deleteRoom = async () => {
@@ -368,10 +467,13 @@ export default function Room() {
   await supabase
    .from("room_players")
    .update({
-    score: 0,
-    answered_current: false,
-    current_answer_correct: null
-   })
+   score: 0,
+   answered_current: false,
+   current_answer_correct: null,
+   last_answer_bonus: 0,
+   last_score_change: 0,
+   last_answer_text: null
+  })
    .eq("room_code", code);
 
   const { data } = await supabase
@@ -608,9 +710,12 @@ export default function Room() {
    await supabase
     .from("room_players")
     .update({
-     answered_current: false,
-     current_answer_correct: null
-    })
+   answered_current: false,
+   current_answer_correct: null,
+   last_answer_bonus: 0,
+   last_score_change: 0,
+   last_answer_text: null
+  })
     .eq("room_code", code);
 
    const { data } = await supabase
@@ -679,13 +784,39 @@ export default function Room() {
    normalizeAnswer(message) ===
    normalizeAnswer(quote.answer);
 
+  const duration =
+   getQuestionDuration(room);
+  const remaining =
+   getRemainingTime(room, Date.now());
+  const fastBonus =
+   isCorrect &&
+   duration &&
+   remaining !== null &&
+   remaining >=
+    Math.max(
+     FAST_BONUS_SECONDS,
+     Math.ceil(duration * 0.5)
+    )
+    ? FAST_BONUS_POINTS
+    : 0;
+  const scoreChange =
+   isCorrect
+    ? CORRECT_POINTS + fastBonus
+    : -WRONG_PENALTY_POINTS;
+  const nextScore =
+   Number(me?.score || 0) + scoreChange;
+
   const { data: answeredPlayer } =
    await supabase
     .from("room_players")
     .update({
      answered_current: true,
      current_answer_correct:
-      isCorrect
+      isCorrect,
+     last_answer_bonus: fastBonus,
+     last_score_change: scoreChange,
+     last_answer_text: message.trim(),
+     score: nextScore
     })
     .eq("player_id", playerId)
     .eq("room_code", code)
@@ -696,17 +827,6 @@ export default function Room() {
   if (!answeredPlayer) {
    setMessage("");
    return;
-  }
-
-  if (isCorrect) {
-   await supabase
-    .from("room_players")
-    .update({
-     score:
-      (answeredPlayer.score || 0) + 1
-    })
-    .eq("player_id", playerId)
-    .eq("room_code", code);
   }
 
   setMessage("");
@@ -863,12 +983,12 @@ export default function Room() {
        <img
         src={quote.poster_url}
         alt={quote.answer}
-        className="w-full h-[420px] object-cover"
+        className="w-full h-64 sm:h-[420px] object-cover"
        />
       )}
 
-      <div className="p-8">
-       <h1 className="text-4xl font-bold mb-4">
+      <div className="p-5 sm:p-8">
+       <h1 className="text-3xl sm:text-4xl font-bold mb-4">
         {quote.answer}
        </h1>
 
@@ -877,7 +997,7 @@ export default function Room() {
        </p>
 
        <div className="flex gap-4 flex-wrap">
-        {isHost && (
+        {canUseQuestionControls && (
          <>
           <button
            onClick={endTrivia}
@@ -900,9 +1020,20 @@ export default function Room() {
     </div>
    )}
 
-   <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-6 mb-10">
+   <div className="fixed top-4 left-4 right-4 z-40 grid gap-2 pointer-events-none sm:left-auto sm:right-6 sm:w-96">
+    {activityNotices.map((item) => (
+     <div
+      key={item.id}
+      className="bg-zinc-900/95 border border-zinc-700 rounded-xl px-4 py-3 text-sm shadow-xl"
+     >
+      {item.text}
+     </div>
+    ))}
+   </div>
+
+   <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-6 mb-8 sm:mb-10">
     <div>
-     <h1 className="text-5xl font-bold mb-2">
+     <h1 className="text-4xl sm:text-5xl font-bold mb-2">
       Room {code}
      </h1>
 
@@ -915,7 +1046,7 @@ export default function Room() {
 
     <div className="flex flex-wrap items-center gap-3">
      {room.game_started && (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-6 py-4 text-center">
+     <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 sm:px-6 py-4 text-center">
        <div className="text-zinc-400 mb-1">
         Time Left
        </div>
@@ -944,7 +1075,7 @@ export default function Room() {
    )}
 
    {!room.game_started ? (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8">
      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
       <div>
        <h2 className="text-3xl font-bold mb-2">
@@ -990,7 +1121,7 @@ export default function Room() {
     </div>
    ) : (
     <div className="grid lg:grid-cols-3 gap-6">
-     <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+     <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8">
       {quote ? (
        <>
         <div className="flex justify-between items-center mb-8 text-zinc-400">
@@ -1005,7 +1136,7 @@ export default function Room() {
          </div>
         </div>
 
-        <p className="text-4xl leading-relaxed mb-10">
+        <p className="text-2xl sm:text-4xl leading-relaxed mb-8 sm:mb-10">
          "{quote.dialogue}"
         </p>
 
@@ -1033,7 +1164,7 @@ export default function Room() {
           Submit Answer
          </button>
 
-         {isHost && (
+         {canUseQuestionControls && (
           <button
            onClick={() =>
             nextQuestion({
@@ -1054,7 +1185,7 @@ export default function Room() {
       )}
      </div>
 
-     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8">
       <h2 className="text-3xl font-bold mb-8">
        Leaderboard
       </h2>
@@ -1079,8 +1210,12 @@ export default function Room() {
            }`}
           >
            {player.current_answer_correct
-            ? "Answered Correct"
-            : "Answered Incorrect"}
+            ? `Answered Correct${
+               Number(player.last_answer_bonus || 0) > 0
+                ? ` +${player.last_answer_bonus} Fast Bonus`
+                : ""
+              }`
+            : `Answered "${player.last_answer_text || "unknown"}" Incorrect -${WRONG_PENALTY_POINTS} Penalty`}
           </div>
          )}
         </div>
