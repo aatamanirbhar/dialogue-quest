@@ -68,6 +68,30 @@ const DEFAULT_MIX_CATEGORIES = [
  "tvshows"
 ];
 
+const insertRoomPlayer = async (payload) => {
+ const { error } = await supabase
+  .from("room_players")
+  .insert(payload);
+
+ if (
+  error &&
+  /account_id|schema cache|column/i.test(
+   error.message || ""
+  )
+ ) {
+  const {
+   account_id: _accountId,
+   ...fallbackPayload
+  } = payload;
+
+  return supabase
+   .from("room_players")
+   .insert(fallbackPayload);
+ }
+
+ return { error };
+};
+
 export default function MultiplayerLobby() {
  const navigate = useNavigate();
  const [searchParams] = useSearchParams();
@@ -415,8 +439,9 @@ export default function MultiplayerLobby() {
   setGateNotice({
    eyebrow: "Room could not be created",
    title: "Something blocked this room.",
-   body:
-    "Please try again in a moment. If this keeps happening, refresh the page and sign in again.",
+   body: message
+    ? `Supabase says: ${message}`
+    : "Please try again in a moment. If this keeps happening, refresh the page and sign in again.",
    primaryLabel: "Close",
    onPrimary: () => setGateNotice(null)
   });
@@ -579,9 +604,7 @@ export default function MultiplayerLobby() {
    if (error) throw error;
 
    const { error: playerError } =
-    await supabase
-     .from("room_players")
-     .insert({
+    await insertRoomPlayer({
      room_code: code,
 
      player_id: playerId,
@@ -669,9 +692,8 @@ export default function MultiplayerLobby() {
   }
 
   if (!existing) {
-   await supabase
-    .from("room_players")
-    .insert({
+   const { error: playerError } =
+    await insertRoomPlayer({
       room_code: upperCode,
 
       player_id: playerId,
@@ -682,6 +704,12 @@ export default function MultiplayerLobby() {
 
       score: 0
     });
+
+   if (playerError) {
+    console.error(playerError);
+    alert(playerError.message);
+    return;
+   }
   }
 
   navigate(

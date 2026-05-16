@@ -4,6 +4,30 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
 
+const insertRoomPlayer = async (payload) => {
+ const { error } = await supabase
+  .from("room_players")
+  .insert(payload);
+
+ if (
+  error &&
+  /account_id|schema cache|column/i.test(
+   error.message || ""
+  )
+ ) {
+  const {
+   account_id: _accountId,
+   ...fallbackPayload
+  } = payload;
+
+  return supabase
+   .from("room_players")
+   .insert(fallbackPayload);
+ }
+
+ return { error };
+};
+
 export default function Home(){
  const navigate = useNavigate();
  const [roomCode, setRoomCode] = useState("");
@@ -74,15 +98,19 @@ export default function Home(){
   }
 
   if (!existing) {
-   await supabase
-    .from("room_players")
-    .insert({
+   const { error } = await insertRoomPlayer({
      room_code: upperCode,
      player_id: playerId,
      account_id: null,
      username: username.trim(),
      score: 0
     });
+
+   if (error) {
+    setJoining(false);
+    alert(error.message);
+    return;
+   }
   }
 
   navigate(`/room/${upperCode}`);
