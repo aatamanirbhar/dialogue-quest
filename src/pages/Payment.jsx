@@ -5,20 +5,25 @@ import React, {
 import { useNavigate } from "react-router-dom";
 import {
  PLANS,
- getAccount,
- upgradeAccount
+ getAccount
 } from "../lib/account";
 
 const plans = [
  {
   name: "Premium",
   price: "$15",
-  period: "one-time payment",
+  amount: 15,
+  upiPrice: "Rs 1,299",
+  upiAmount: 1299,
+  period: "lifetime account upgrade",
+  audience: "Best for friend groups who host often.",
+  paymentLink:
+   "https://www.paypal.com/paypalme/vikasdubey3811/15",
   features: [
-   "Unlimited multiplayer room creation",
-   "Play with friends without trial limits",
-   "Premium account status",
-   "Private rooms and invite codes"
+   "Unlimited hosted multiplayer rooms",
+   "Keep playing after the 2 free-room trial",
+   "Invite-code rooms for your friend circle",
+   "Endless mode and custom timers stay unlocked"
   ],
   highlight: true,
   plan: PLANS.PREMIUM
@@ -26,24 +31,52 @@ const plans = [
  {
   name: "Premium Plus",
   price: "$29",
-  period: "one-time upgrade",
+  amount: 29,
+  upiPrice: "Rs 2,499",
+  upiAmount: 2499,
+  period: "lifetime host upgrade",
+  audience: "Made for parties, classrooms, and bigger game nights.",
+  paymentLink:
+   "https://www.paypal.com/paypalme/vikasdubey3811/29",
   features: [
-   "Create rooms for up to 20 players",
-   "Choose player limit from a dropdown",
-   "Host can skip/end current question",
-   "Access to upcoming features like fill in the song lyrics"
+   "Host rooms for up to 20 players",
+   "Choose the exact player cap before hosting",
+   "Skip trivia or end questions as the host",
+   "Early access to new party modes and categories"
   ],
   plan: PLANS.PREMIUM_PLUS
  }
 ];
+
+const getErrorMessage = (error) => {
+ if (!error) return "Something went wrong.";
+
+ return (
+  error.message ||
+  error.details?.[0]?.description ||
+  "Something went wrong."
+ );
+};
 
 export default function Payment() {
  const navigate = useNavigate();
  const [account, setAccount] = useState(null);
  const [loading, setLoading] =
   useState(true);
- const [upgradingPlan, setUpgradingPlan] =
-  useState(null);
+ const [selectedPlan, setSelectedPlan] =
+  useState(plans[0]);
+ const [transactionId, setTransactionId] =
+  useState("");
+ const [payerName, setPayerName] =
+  useState("");
+ const [contact, setContact] = useState("");
+ const [note, setNote] = useState("");
+ const [submitting, setSubmitting] =
+  useState(false);
+ const [paymentMessage, setPaymentMessage] =
+  useState("");
+ const [paymentMethod, setPaymentMethod] =
+  useState("paypal");
 
  useEffect(() => {
   let active = true;
@@ -64,30 +97,116 @@ export default function Payment() {
   };
  }, []);
 
- const handleUpgrade = async (plan) => {
+ const getUpiLink = (plan) => {
+  const params = new URLSearchParams({
+   pa: "8949720403@ptyes",
+   pn: "Dialogue Quest",
+   am: String(plan.upiAmount),
+   cu: "INR",
+   tn: `Dialogue Quest ${plan.name}`
+  });
+
+  return `upi://pay?${params.toString()}`;
+ };
+
+ const openPaymentLink = (
+  plan,
+  method = "paypal"
+ ) => {
   if (!account) {
-   alert(
-    "Login or create an account before upgrading."
-   );
    navigate("/multiplayer");
    return;
   }
 
-  setUpgradingPlan(plan);
+  setSelectedPlan(plan);
+  setPaymentMethod(method);
+  setPaymentMessage(
+   "After payment, return here and submit the transaction details. Premium activation can take up to 1 day."
+  );
+
+  window.open(
+   method === "upi"
+    ? getUpiLink(plan)
+    : plan.paymentLink,
+   "_blank",
+   "noopener,noreferrer"
+  );
+ };
+
+ const submitPaymentReview = async (
+  event
+ ) => {
+  event.preventDefault();
+
+  if (!account) {
+   navigate("/multiplayer");
+   return;
+  }
+
+  if (!transactionId.trim()) {
+   setPaymentMessage(
+    "Add the PayPal transaction ID, receipt number, or the email/name used for payment."
+   );
+   return;
+  }
+
+  setSubmitting(true);
+  setPaymentMessage("");
 
   try {
-   await upgradeAccount(plan);
-   navigate("/multiplayer");
+   const response = await fetch(
+    "/api/payment-notify",
+    {
+     method: "POST",
+     headers: {
+      "Content-Type": "application/json"
+     },
+     body: JSON.stringify({
+      userId: account.id,
+      email: account.email,
+      name: account.name,
+      currentPlan: account.plan,
+      requestedPlan: selectedPlan.plan,
+      requestedPlanName:
+       selectedPlan.name,
+      amount: selectedPlan.amount,
+      upiAmount: selectedPlan.upiAmount,
+      paymentMethod,
+      transactionId,
+      payerName,
+      contact,
+      note
+     })
+    }
+   );
+   const payload = await response.json();
+
+   if (!response.ok) {
+    throw new Error(
+     getErrorMessage(payload)
+    );
+   }
+
+   setPaymentMessage(
+    "Payment details received. Your premium features will be activated after review, usually within 1 day."
+   );
+   setTransactionId("");
+   setPayerName("");
+   setContact("");
+   setNote("");
   } catch (error) {
-   alert(error.message);
+   setPaymentMessage(
+    getErrorMessage(error)
+   );
+   console.error(error);
   } finally {
-   setUpgradingPlan(null);
+   setSubmitting(false);
   }
  };
 
  return (
   <div className="min-h-screen bg-black text-white">
-   <div className="max-w-6xl mx-auto px-6 py-10">
+   <div className="max-w-6xl mx-auto px-5 sm:px-6 py-8 sm:py-10">
     <button
      onClick={() => navigate("/multiplayer")}
      className="bg-zinc-900 border border-zinc-800 px-5 py-3 rounded-lg font-bold mb-10"
@@ -101,13 +220,17 @@ export default function Payment() {
        Premium Multiplayer
       </p>
 
-      <h1 className="text-6xl font-bold leading-tight mb-6">
-       Put a polished paywall in front of your best rooms.
+      <h1 className="text-5xl sm:text-6xl font-bold leading-tight mb-6">
+       Host every game night without hitting limits.
       </h1>
 
-      <p className="text-zinc-400 text-lg leading-relaxed mb-8">
-       Premium is a one-time $15 payment that makes the account premium forever. Premium Plus adds large rooms, host question controls, and upcoming feature access.
+      <p className="text-zinc-400 text-lg leading-relaxed mb-6">
+       Pay with PayPal or UPI, then submit your transaction details below. Premium access is reviewed manually and can take up to 1 day to activate.
       </p>
+
+      <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-100 rounded-lg p-4 mb-8">
+       Premium features are not instant on this manual payment method. We verify the payment first, then activate the account.
+      </div>
 
       <p className="text-zinc-500 mb-8">
        {loading
@@ -117,17 +240,107 @@ export default function Payment() {
          : "You need to login before upgrading."}
       </p>
 
-      <button
-       onClick={() =>
-        handleUpgrade(PLANS.PREMIUM)
-       }
-       disabled={loading || upgradingPlan}
-       className="bg-yellow-400 text-black px-8 py-4 rounded-lg font-bold"
+      {paymentMessage && (
+       <div className="border border-zinc-700 bg-zinc-900 text-zinc-100 rounded-lg p-4 mb-6">
+        {paymentMessage}
+       </div>
+      )}
+
+      <form
+       onSubmit={submitPaymentReview}
+       className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 grid gap-4"
       >
-       {upgradingPlan === PLANS.PREMIUM
-        ? "Storing Payment..."
-        : "Pay $15 and Unlock Premium"}
-      </button>
+       <div>
+        <label className="block text-sm text-zinc-400 mb-2">
+         Plan you paid for
+        </label>
+        <select
+         value={selectedPlan.plan}
+         onChange={(event) => {
+          const nextPlan = plans.find(
+           (plan) =>
+            plan.plan ===
+            event.target.value
+          );
+          setSelectedPlan(nextPlan);
+         }}
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
+        >
+         {plans.map((plan) => (
+          <option
+           key={plan.plan}
+           value={plan.plan}
+          >
+           {plan.name} - {plan.price}
+          </option>
+         ))}
+        </select>
+       </div>
+
+       <div>
+        <label className="block text-sm text-zinc-400 mb-2">
+         Payment method used
+        </label>
+        <select
+         value={paymentMethod}
+         onChange={(event) =>
+          setPaymentMethod(event.target.value)
+         }
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
+        >
+         <option value="paypal">PayPal</option>
+         <option value="upi">UPI</option>
+        </select>
+       </div>
+
+       <input
+        value={transactionId}
+        onChange={(event) =>
+         setTransactionId(
+          event.target.value
+         )
+        }
+        placeholder="Transaction ID, UPI reference, or receipt ID"
+        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
+       />
+
+       <input
+        value={payerName}
+        onChange={(event) =>
+         setPayerName(event.target.value)
+        }
+        placeholder="Name or PayPal email used for payment"
+        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
+       />
+
+       <input
+        value={contact}
+        onChange={(event) =>
+         setContact(event.target.value)
+        }
+        placeholder="Contact email or phone for follow-up"
+        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
+       />
+
+       <textarea
+        value={note}
+        onChange={(event) =>
+         setNote(event.target.value)
+        }
+        placeholder="Optional note"
+        rows={3}
+        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg resize-none"
+       />
+
+       <button
+        disabled={loading || submitting}
+        className="bg-yellow-400 text-black p-4 rounded-lg font-bold disabled:opacity-60"
+       >
+        {submitting
+         ? "Submitting..."
+         : "Submit Payment Details"}
+       </button>
+      </form>
      </section>
 
      <section className="grid gap-5">
@@ -154,28 +367,64 @@ export default function Payment() {
           >
            {plan.period}
           </p>
+          <p
+           className={`mt-3 ${
+            plan.highlight
+             ? "text-zinc-600"
+             : "text-zinc-400"
+           }`}
+          >
+           {plan.audience}
+          </p>
          </div>
 
          <div className="text-5xl font-bold">
           {plan.price}
+         </div>
         </div>
-       </div>
 
-       <button
-       onClick={() =>
-        handleUpgrade(plan.plan)
-       }
-       disabled={loading || upgradingPlan}
-       className={`w-full mb-5 p-4 rounded-lg font-bold ${
-         plan.highlight
-          ? "bg-black text-white"
-          : "bg-yellow-400 text-black"
-       }`}
-      >
-        {upgradingPlan === plan.plan
-         ? "Storing Payment..."
-         : `Upgrade to ${plan.name}`}
-       </button>
+        <div className="grid sm:grid-cols-2 gap-3 mb-3">
+         <button
+          onClick={() =>
+           openPaymentLink(
+            plan,
+            "paypal"
+           )
+          }
+          disabled={loading || submitting}
+          className={`w-full p-4 rounded-lg font-bold disabled:opacity-60 ${
+           plan.highlight
+            ? "bg-black text-white"
+            : "bg-yellow-400 text-black"
+          }`}
+         >
+          PayPal - {plan.price}
+         </button>
+
+         <button
+          onClick={() =>
+           openPaymentLink(plan, "upi")
+          }
+          disabled={loading || submitting}
+          className={`w-full p-4 rounded-lg font-bold border disabled:opacity-60 ${
+           plan.highlight
+            ? "border-zinc-300 text-black"
+            : "border-zinc-700 text-white"
+          }`}
+         >
+          UPI - {plan.upiPrice}
+         </button>
+        </div>
+
+        <p
+         className={`text-sm mb-5 ${
+          plan.highlight
+           ? "text-zinc-600"
+           : "text-zinc-400"
+         }`}
+        >
+         Activation can take up to 1 day after payment review.
+        </p>
 
         <div className="grid md:grid-cols-2 gap-3">
          {plan.features.map((feature) => (

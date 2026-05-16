@@ -14,6 +14,7 @@ import { supabase } from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
 import {
  getAccount,
+ isPremium,
  isPremiumPlus,
  onAccountChange
 } from "../lib/account";
@@ -25,6 +26,10 @@ const FAST_BONUS_SECONDS = 8;
 const CORRECT_POINTS = 10;
 const FAST_BONUS_POINTS = 5;
 const WRONG_PENALTY_POINTS = 3;
+const DEFAULT_MIX_CATEGORIES = [
+ "hollywood",
+ "tvshows"
+];
 
 const parseSupabaseTime = (value) => {
  if (!value) return null;
@@ -106,6 +111,45 @@ const normalizeCategory = (value) => {
   .replace(/[^a-z0-9]/g, "");
 };
 
+const isMixCategory = (value) =>
+ normalizeCategory(value) === "mix";
+
+const getMixCategories = (value) => {
+ if (Array.isArray(value) && value.length) {
+  return value.map(normalizeCategory);
+ }
+
+ if (typeof value === "string" && value) {
+  return value
+   .split(",")
+   .map(normalizeCategory)
+   .filter(Boolean);
+ }
+
+ return DEFAULT_MIX_CATEGORIES;
+};
+
+const categoryMatches = (
+ quoteCategory,
+ selectedCategory
+) => {
+ const quote = normalizeCategory(quoteCategory);
+ const selected =
+  normalizeCategory(selectedCategory);
+
+ return (
+  quote === selected ||
+  (
+   selected === "tvshows" &&
+   quote === "tvseries"
+  ) ||
+  (
+   selected === "tvseries" &&
+   quote === "tvshows"
+  )
+ );
+};
+
 const getWinnerText = (players) => {
  if (!players?.length) return "No Winner";
 
@@ -158,6 +202,9 @@ export default function Room() {
   isHost && isPremiumPlus(account);
  const canUseQuestionControls =
   players.length <= 2 || premiumPlusHost;
+ const premiumMixEnabled =
+  isPremium(account) &&
+  isMixCategory(room?.category);
 
  useEffect(() => {
   let active = true;
@@ -320,21 +367,30 @@ export default function Room() {
 
   const requestedCategory =
    normalizeCategory(sourceRoom.category);
+  const selectedMixCategories =
+   getMixCategories(
+    sourceRoom.mix_categories
+   );
 
   const matchingQuotes =
    (quotes || []).filter((quoteItem) => {
     const quoteCategory =
      normalizeCategory(quoteItem.category);
 
+    if (requestedCategory === "mix") {
+     return selectedMixCategories.some(
+      (selected) =>
+       categoryMatches(
+        quoteCategory,
+        selected
+       )
+     );
+    }
+
     return (
-     quoteCategory === requestedCategory ||
-     (
-      requestedCategory === "tvshows" &&
-      quoteCategory === "tvseries"
-     ) ||
-     (
-      requestedCategory === "tvseries" &&
-      quoteCategory === "tvshows"
+     categoryMatches(
+      quoteCategory,
+      requestedCategory
      )
     );
    });
@@ -1038,7 +1094,9 @@ export default function Room() {
      </h1>
 
      <p className="text-zinc-400 capitalize">
-      {room.category}{" "}
+      {room.category === "mix"
+       ? "Premium Mix"
+       : room.category}{" "}
       {!room.endless_mode &&
        `- ${room.total_rounds} rounds`}
      </p>
@@ -1119,11 +1177,17 @@ export default function Room() {
       ))}
      </div>
     </div>
-   ) : (
+  ) : (
     <div className="grid lg:grid-cols-3 gap-6">
      <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8">
       {quote ? (
        <>
+        {premiumMixEnabled && (
+         <div className="mb-5 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-yellow-100">
+          Premium Mix is active. Questions come from: {getMixCategories(room.mix_categories).join(", ")}.
+         </div>
+        )}
+
         <div className="flex justify-between items-center mb-8 text-zinc-400">
          <div>
           Question {room.current_question + 1}
