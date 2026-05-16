@@ -71,6 +71,8 @@ export default function MultiplayerLobby() {
    searchParams.get("room");
   const usernameParam =
    searchParams.get("username");
+  const authParam =
+   searchParams.get("auth");
 
   if (codeParam) {
    setRoomCode(codeParam.toUpperCase());
@@ -79,17 +81,34 @@ export default function MultiplayerLobby() {
   if (usernameParam) {
    setUsername(usernameParam);
   }
+
+  if (
+   authParam === "signin" ||
+   authParam === "signup"
+  ) {
+   setAuthMode(authParam);
+  }
  }, [searchParams]);
 
  useEffect(() => {
   let active = true;
 
   const loadAccount = async () => {
-   const nextAccount = await getAccount();
+   try {
+    const nextAccount = await getAccount();
 
-   if (active) {
-    setAccount(nextAccount);
-    setAuthLoading(false);
+    if (active) {
+     setAccount(nextAccount);
+    }
+   } catch (error) {
+    console.error(error);
+    if (active) {
+     setAccount(null);
+    }
+   } finally {
+    if (active) {
+     setAuthLoading(false);
+    }
    }
   };
 
@@ -178,97 +197,104 @@ export default function MultiplayerLobby() {
  };
 
  const createRoom = async () => {
-  if (!account) {
-   alert(
-    "Login or create an account to use multiplayer."
-   );
-   return;
-  }
+  try {
+   if (!account) {
+    alert(
+     "Login or create an account to use multiplayer."
+    );
+    return;
+   }
 
-  if (
-   !hasPremium &&
-   trialCreditsLeft <= 0
-  ) {
-   alert(
-    "Your 2 free multiplayer rooms are used. Upgrade to Premium for unlimited room creation."
-   );
-   navigate("/payment");
-   return;
-  }
+   if (
+    !hasPremium &&
+    trialCreditsLeft <= 0
+   ) {
+    alert(
+     "Your 2 free multiplayer rooms are used. Upgrade to Premium for unlimited room creation."
+    );
+    navigate("/payment");
+    return;
+   }
 
-  if (!username) {
-   alert("Enter username");
-   return;
-  }
+   if (!username) {
+    alert("Enter username");
+    return;
+   }
 
-  const code = Math.random()
-   .toString(36)
-   .substring(2, 8)
-   .toUpperCase();
+   const code = Math.random()
+    .toString(36)
+    .substring(2, 8)
+    .toUpperCase();
 
-  const playerId = getPlayerId();
+   const playerId = getPlayerId();
 
-  const { error } = await supabase
-   .from("rooms")
-   .insert({
-    room_code: code,
+   const { error } = await supabase
+    .from("rooms")
+    .insert({
+     room_code: code,
 
-    host_id: playerId,
+     host_id: playerId,
 
-    current_question: 0,
+     current_question: 0,
 
-    game_started: false,
+     game_started: false,
 
-    category: selectedCategory,
+     category: selectedCategory,
 
-    total_rounds: selectedRounds,
+     total_rounds: selectedRounds,
 
-    endless_mode: endlessMode,
+     endless_mode: endlessMode,
 
-    question_duration:
-     questionDuration,
+     question_duration:
+      questionDuration,
 
-    game_finished: false,
+     game_finished: false,
 
-    show_trivia: true,
+     show_trivia: true,
 
-    processing_answer: false,
+     processing_answer: false,
 
-    max_players:
-     hasPremiumPlus ? maxPlayers : 2,
+     max_players:
+      hasPremiumPlus ? maxPlayers : 2,
 
-    plan_required:
-     hasPremiumPlus
-      ? PLANS.PREMIUM_PLUS
-      : hasPremium
-       ? PLANS.PREMIUM
-       : PLANS.FREE
-   });
+     plan_required:
+      hasPremiumPlus
+       ? PLANS.PREMIUM_PLUS
+       : hasPremium
+        ? PLANS.PREMIUM
+        : PLANS.FREE
+    });
 
-  if (error) {
+   if (error) throw error;
+
+   const { error: playerError } =
+    await supabase
+     .from("room_players")
+     .insert({
+      room_code: code,
+
+      player_id: playerId,
+
+      username,
+
+      score: 0
+     });
+
+   if (playerError) throw playerError;
+
+   if (!hasPremium) {
+    const nextAccount =
+     await useTrialCredit(account);
+    setAccount(nextAccount);
+   }
+
+   navigate(`/room/${code}`);
+  } catch (error) {
    console.error(error);
-   return;
+   alert(
+    `Could not create room: ${error.message}`
+   );
   }
-
-  await supabase
-   .from("room_players")
-   .insert({
-    room_code: code,
-
-    player_id: playerId,
-
-    username,
-
-   score: 0
-   });
-
-  if (!hasPremium) {
-   const nextAccount =
-    await useTrialCredit(account);
-   setAccount(nextAccount);
-  }
-
-  navigate(`/room/${code}`);
  };
 
  const joinRoom = async () => {

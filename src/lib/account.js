@@ -31,8 +31,10 @@ const mapProfile = (profile, user) => ({
 });
 
 export async function getSession() {
- const { data } =
+ const { data, error } =
   await supabase.auth.getSession();
+
+ if (error) throw error;
 
  return data.session;
 }
@@ -47,25 +49,27 @@ export async function getAccount() {
 }
 
 export async function ensureProfile(user) {
- const { data: profile } = await supabase
+ const { data: profile, error: selectError } =
+  await supabase
   .from("profiles")
   .select("*")
   .eq("id", user.id)
   .maybeSingle();
 
+ if (selectError) {
+  console.error(selectError);
+  return mapProfile(null, user);
+ }
+
  if (profile) {
   return mapProfile(profile, user);
  }
-
- const name = user.user_metadata?.name || "";
 
  const { data: createdProfile, error } =
   await supabase
    .from("profiles")
    .insert({
     id: user.id,
-    email: user.email,
-    name,
     plan: PLANS.FREE,
     rooms_created: 0
    })
@@ -90,6 +94,8 @@ export async function createAccount({
    email: email.trim(),
    password,
    options: {
+    emailRedirectTo:
+     `${window.location.origin}/multiplayer?auth=signin`,
     data: {
      name: name.trim()
     }
@@ -129,13 +135,22 @@ export function onAccountChange(callback) {
  const {
   data: { subscription }
  } = supabase.auth.onAuthStateChange(
-  async (_event, session) => {
+  (_event, session) => {
    if (!session?.user) {
     callback(null);
     return;
    }
 
-   callback(await ensureProfile(session.user));
+   setTimeout(async () => {
+    try {
+     callback(
+      await ensureProfile(session.user)
+     );
+    } catch (error) {
+     console.error(error);
+     callback(null);
+    }
+   }, 0);
   }
  );
 
@@ -150,17 +165,19 @@ export async function upgradeAccount(plan) {
 
  const { data, error } = await supabase
   .from("profiles")
-  .update({
+  .upsert({
+   id: user.id,
    plan,
    paid_at: new Date().toISOString(),
    payment_status: "paid",
    paid_plan: plan,
    paid_amount:
     plan === PLANS.PREMIUM ? 15 : 29
+  }, {
+   onConflict: "id"
   })
-  .eq("id", user.id)
   .select("*")
-  .single();
+  .maybeSingle();
 
  if (error) throw error;
 
@@ -181,14 +198,24 @@ export async function useTrialCredit(account) {
 
  const { data, error } = await supabase
   .from("profiles")
-  .update({
+  .upsert({
+   id: account.id,
+   plan: account.plan || PLANS.FREE,
    rooms_created: nextRoomsCreated
+  }, {
+   onConflict: "id"
   })
-  .eq("id", account.id)
   .select("*")
-  .single();
+  .maybeSingle();
 
  if (error) throw error;
+
+ if (!data) {
+  return {
+   ...account,
+   roomsCreated: nextRoomsCreated
+  };
+ }
 
  return mapProfile(data, {
   id: account.id,
