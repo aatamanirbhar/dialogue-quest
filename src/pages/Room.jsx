@@ -64,6 +64,23 @@ const toSupabaseTime = (date = new Date()) => {
  return date.toISOString();
 };
 
+const getServerTimeMs = async () => {
+ const { data, error } = await supabase.rpc(
+  "get_server_time"
+ );
+
+ if (error || !data) {
+  return Date.now();
+ }
+
+ const value = Array.isArray(data)
+  ? data[0]
+  : data;
+ const time = parseSupabaseTime(value);
+
+ return time || Date.now();
+};
+
 const getQuestionDuration = (room) => {
  const duration = Number(room?.question_duration);
 
@@ -76,6 +93,18 @@ const getRemainingTime = (room, currentTime) => {
  const duration = getQuestionDuration(room);
 
  if (!duration) return null;
+
+ if (room?.question_ends_at) {
+  const endsAt =
+   parseSupabaseTime(room.question_ends_at);
+
+  if (endsAt) {
+   return Math.max(
+    0,
+    Math.ceil((endsAt - currentTime) / 1000)
+   );
+  }
+ }
 
  if (!room?.question_started_at) {
   return duration;
@@ -161,7 +190,10 @@ const isLyricsCategory = (value) =>
 
 const mapLyricsQuestionToQuote = (question) => ({
  ...question,
- dialogue: question.prompt,
+ dialogue:
+  question.prompt ||
+  question.dialogue ||
+  "Complete the missing lyrics",
  answer: question.answer,
  trivia_fact:
   question.trivia_fact ||
@@ -169,6 +201,26 @@ const mapLyricsQuestionToQuote = (question) => ({
  poster_url: question.poster_url || null,
  source_table: "lyrics_questions"
 });
+
+const fetchActiveLyricsQuestions = async () => {
+ let response = await supabase
+  .from("lyrics_questions")
+  .select("id, category")
+  .eq("is_active", true);
+
+ if (
+  response.error &&
+  /is_active|schema cache|column/i.test(
+   response.error.message || ""
+  )
+ ) {
+  response = await supabase
+   .from("lyrics_questions")
+   .select("id, category");
+ }
+
+ return response;
+};
 
 const getWinnerText = (players) => {
  if (!players?.length) return "No Winner";
@@ -208,6 +260,10 @@ export default function Room() {
   useState([]);
  const [account, setAccount] = useState(null);
  const [now, setNow] = useState(Date.now());
+ const [serverOffsetMs, setServerOffsetMs] =
+  useState(0);
+ const [roomClosedNotice, setRoomClosedNotice] =
+  useState(false);
  const [finalNote, setFinalNote] =
   useState(null);
  const [playAgainNotice, setPlayAgainNotice] =
@@ -310,6 +366,10 @@ export default function Room() {
    .eq("room_code", code)
    .maybeSingle();
 
+  if (room && !data) {
+   setRoomClosedNotice(true);
+  }
+
   setRoom(data || null);
 
   if (data?.play_again_requester_names?.length) {
@@ -410,6 +470,17 @@ export default function Room() {
 
  const deleteRoom = async () => {
   await supabase
+   .from("rooms")
+   .update({
+    game_finished: true,
+    winner: "Room closed by host",
+    trivia_active: false,
+    trivia_ends_at: null,
+    processing_answer: false
+   })
+   .eq("room_code", code);
+
+  await supabase
    .from("room_questions")
    .delete()
    .eq("room_code", code);
@@ -475,11 +546,15 @@ export default function Room() {
 
  const generateQuestions = async (sourceRoom) => {
  if (isLyricsCategory(sourceRoom.category)) {
-  const { data: lyricsQuestions } =
-   await supabase
-    .from("lyrics_questions")
-    .select("id, category")
-    .eq("is_active", true);
+  const {
+   data: lyricsQuestions,
+   error: lyricsError
+  } = await fetchActiveLyricsQuestions();
+
+  if (lyricsError) {
+   console.error(lyricsError);
+   return null;
+  }
 
   const matchingLyrics =
    lyricsQuestions || [];
@@ -657,11 +732,36 @@ export default function Room() {
 
  useEffect(() => {
   const interval = setInterval(
-   () => setNow(Date.now()),
+   () =>
+    setNow(Date.now() + serverOffsetMs),
    1000
   );
 
   return () => clearInterval(interval);
+ }, [serverOffsetMs]);
+
+ useEffect(() => {
+  let active = true;
+
+  const syncServerTime = async () => {
+   const serverTime = await getServerTimeMs();
+
+   if (active) {
+    setServerOffsetMs(serverTime - Date.now());
+    setNow(serverTime);
+   }
+  };
+
+  syncServerTime();
+  const interval = setInterval(
+   syncServerTime,
+   15000
+  );
+
+  return () => {
+   active = false;
+   clearInterval(interval);
+  };
  }, []);
 
  const startGame = async () => {
@@ -696,6 +796,16 @@ export default function Room() {
   })
    .eq("room_code", code);
 
+  const serverTime = await getServerTimeMs();
+  const duration = getQuestionDuration(room);
+  const startedAt = new Date(serverTime);
+  const endsAt =
+   duration === null
+    ? null
+    : new Date(
+       serverTime + duration * 1000
+      );
+
   const { data } = await supabase
    .from("rooms")
    .update({
@@ -708,7 +818,9 @@ export default function Room() {
     current_question: 0,
     current_quote_id: firstQuoteId,
     question_started_at:
-     toSupabaseTime(),
+     toSupabaseTime(startedAt),
+    question_ends_at:
+     endsAt ? toSupabaseTime(endsAt) : null,
     trivia_active: false,
     trivia_ends_at: null,
     processing_answer: false
@@ -720,7 +832,9 @@ export default function Room() {
   if (data) setRoom(data);
  };
 
- const remainingTime =
+ const syncedNow = Date.now() + serverOffsetMs;
+
+  const remainingTime =
   useMemo(() => {
    return getRemainingTime(
     room,
@@ -744,19 +858,20 @@ export default function Room() {
    return;
   }
 
-  const durationMs =
-   getQuestionDuration(room) * 1000;
-  const startedAt =
+  const endsAt =
    parseSupabaseTime(
-    room.question_started_at
+    room.question_ends_at
+   ) ||
+   (
+    parseSupabaseTime(
+     room.question_started_at
+    ) +
+    getQuestionDuration(room) * 1000
    );
 
-  if (!startedAt) return;
+  if (!endsAt) return;
 
-  const delay = Math.max(
-   0,
-   startedAt + durationMs - Date.now()
-  );
+  const delay = Math.max(0, endsAt - syncedNow);
 
   const timeout = setTimeout(
    () => nextQuestion(),
@@ -769,8 +884,10 @@ export default function Room() {
   room?.game_finished,
   room?.trivia_active,
   room?.question_started_at,
+  room?.question_ends_at,
   room?.question_duration,
-  isHost
+  isHost,
+  serverOffsetMs
  ]);
 
  useEffect(() => {
@@ -1023,6 +1140,17 @@ export default function Room() {
   })
     .eq("room_code", code);
 
+   const serverTime = await getServerTimeMs();
+   const duration =
+    getQuestionDuration(lockedRoom);
+   const startedAt = new Date(serverTime);
+   const endsAt =
+    duration === null
+     ? null
+     : new Date(
+        serverTime + duration * 1000
+       );
+
    const { data } = await supabase
     .from("rooms")
     .update({
@@ -1030,7 +1158,9 @@ export default function Room() {
      current_quote_id:
       nextRoomQuestion.quote_id,
      question_started_at:
-      toSupabaseTime(),
+      toSupabaseTime(startedAt),
+     question_ends_at:
+      endsAt ? toSupabaseTime(endsAt) : null,
      trivia_active: false,
      trivia_ends_at: null,
      processing_answer: false
@@ -1173,6 +1303,7 @@ export default function Room() {
  };
 
  const closeRoom = async () => {
+  setRoomClosedNotice(true);
   await deleteRoom();
   navigate("/multiplayer");
  };
@@ -1190,10 +1321,14 @@ export default function Room() {
    <div className="min-h-screen bg-black text-white flex items-center justify-center p-6 text-center">
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-lg">
      <h1 className="text-4xl font-bold mb-4">
-      Room closed
+      {roomClosedNotice
+       ? "Room closed by host"
+       : "Room closed"}
      </h1>
      <p className="text-zinc-400 mb-8">
-      This room has ended or was disposed by the host.
+      {roomClosedNotice
+       ? "The host closed this session."
+       : "This room has ended or was disposed by the host."}
      </p>
      <button
       onClick={() => navigate("/multiplayer")}

@@ -1419,45 +1419,6 @@ export default function MultiplayerLobby() {
      </div>
     )}
 
-    <div className="border border-yellow-500/40 bg-zinc-950 rounded-2xl p-5 mb-5">
-     <div className="flex items-start justify-between gap-4 mb-4">
-      <div>
-       <h2 className="text-2xl font-bold">
-        Complete the Lyrics
-       </h2>
-       <p className="text-zinc-400 mt-2">
-        {hasPremiumPlus
-         ? "Premium Plus early access unlocked."
-         : "Locked until Premium Plus is active."}
-       </p>
-      </div>
-      <span className={`text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border ${
-       hasPremiumPlus
-        ? "text-cyan-300 border-cyan-400/40 bg-cyan-400/10"
-        : "text-yellow-300 border-yellow-500/40"
-      }`}>
-       {hasPremiumPlus ? "Unlocked" : "Premium Plus"}
-      </span>
-     </div>
-     <button
-      type="button"
-      onClick={() => {
-       if (!hasPremiumPlus) {
-       showLyricsPremiumPlusGate();
-       return;
-      }
-       setSelectedCategory("lyrics");
-      }}
-      className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
-     >
-      {hasPremiumPlus
-       ? selectedCategory === "lyrics"
-        ? "Lyrics Selected"
-        : "Select Lyrics Multiplayer"
-       : "Unlock Lyrics Multiplayer"}
-     </button>
-    </div>
-
     <select
      value={selectedRounds}
      onChange={(e) =>
@@ -1571,6 +1532,45 @@ export default function MultiplayerLobby() {
     >
      Join Room
     </button>
+
+    <div className="border border-yellow-500/40 bg-zinc-950 rounded-2xl p-5 mt-6">
+     <div className="flex items-start justify-between gap-4 mb-4">
+      <div>
+       <h2 className="text-2xl font-bold">
+        Complete the Lyrics
+       </h2>
+       <p className="text-zinc-400 mt-2">
+        {hasPremiumPlus
+         ? "Premium Plus early access unlocked."
+         : "Locked until Premium Plus is active."}
+       </p>
+      </div>
+      <span className={`text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border ${
+       hasPremiumPlus
+        ? "text-cyan-300 border-cyan-400/40 bg-cyan-400/10"
+        : "text-yellow-300 border-yellow-500/40"
+      }`}>
+       {hasPremiumPlus ? "Unlocked" : "Premium Plus"}
+      </span>
+     </div>
+     <button
+      type="button"
+      onClick={() => {
+       if (!hasPremiumPlus) {
+       showLyricsPremiumPlusGate();
+       return;
+      }
+       setSelectedCategory("lyrics");
+      }}
+      className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
+     >
+      {hasPremiumPlus
+       ? selectedCategory === "lyrics"
+        ? "Lyrics Selected"
+        : "Select Lyrics Multiplayer"
+       : "Unlock Lyrics Multiplayer"}
+     </button>
+    </div>
     </div>
     )}
 

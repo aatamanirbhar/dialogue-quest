@@ -7,17 +7,22 @@ import {
  PLANS,
  getAccount
 } from "../lib/account";
+import { supabase } from "../lib/supabase";
+
+const SUPPORT_EMAIL = "jkjkjkheyhey@gmail.com";
+const PAYPAL_TARGET = "paypal.me/vikas117";
+const UPI_ID = "8949720403@ptyes";
 
 const plans = [
  {
   name: "Premium",
-  price: "$0.10",
-  amount: 0.1,
-  upiPrice: "Rs 0.10",
-  upiAmount: 0.1,
+  price: "$15",
+  amount: 15,
+  upiPrice: "UPI",
+  upiAmount: 15,
   period: "lifetime account upgrade",
   audience: "Best for friend groups who host often.",
-  paypalLink: "https://paypal.me/vikas117/0.10",
+  paypalLink: "https://paypal.me/vikas117",
   features: [
    "Unlimited hosted multiplayer rooms",
    "Keep playing after the 2 free-room trial",
@@ -29,13 +34,13 @@ const plans = [
  },
  {
   name: "Premium Plus",
-  price: "$0.10",
-  amount: 0.1,
-  upiPrice: "Rs 0.10",
-  upiAmount: 0.1,
+  price: "$15",
+  amount: 15,
+  upiPrice: "UPI",
+  upiAmount: 15,
   period: "lifetime host upgrade",
   audience: "Made for parties, classrooms, and bigger game nights.",
-  paypalLink: "https://paypal.me/vikas117/0.10",
+  paypalLink: "https://paypal.me/vikas117",
   features: [
    "Host rooms for up to 20 players",
    "Choose the exact player cap before hosting",
@@ -59,7 +64,7 @@ const getErrorMessage = (error) => {
 
 const getUpiLink = (plan) => {
  const params = new URLSearchParams({
-  pa: "8949720403@yapl",
+  pa: UPI_ID,
   pn: "Vikas Dubey",
   am: String(plan.upiAmount),
   cu: "INR",
@@ -90,6 +95,10 @@ export default function Payment() {
   useState("paypal");
  const [showUpiQr, setShowUpiQr] =
   useState(false);
+ const [proofFile, setProofFile] =
+  useState(null);
+ const [proofPreview, setProofPreview] =
+  useState("");
 
  useEffect(() => {
   let active = true;
@@ -110,6 +119,21 @@ export default function Payment() {
   };
  }, []);
 
+ const getManualPaymentMessage = (method) => {
+  if (method === "upi") {
+   return `Send the money to UPI ID ${UPI_ID} or scan the QR code below, then fill the form above with your transaction details. We will verify your details manually and it can take up to 1 day to give you your premium account access. For any troubles you can mail us at ${SUPPORT_EMAIL}.`;
+  }
+
+  return `Send the money to ${PAYPAL_TARGET} and fill the form above with your transaction details. We will verify your details manually and it can take up to 1 day to give you your premium account access. For any troubles you can mail us at ${SUPPORT_EMAIL}.`;
+ };
+
+ const showManualPaymentPopup = (method) => {
+  const message =
+   getManualPaymentMessage(method);
+  setPaymentMessage(message);
+  window.alert(message);
+ };
+
  const openPaymentLink = (
   plan,
   method = "paypal"
@@ -124,9 +148,7 @@ export default function Payment() {
   setShowUpiQr(method === "upi");
 
   if (method === "upi") {
-   setPaymentMessage(
-    `Opening UPI for ${plan.upiPrice}. If your device blocks the request, scan the QR code below and submit the UPI reference ID after payment.`
-   );
+   showManualPaymentPopup("upi");
    window.open(
     getUpiLink(plan),
     "_blank",
@@ -135,15 +157,142 @@ export default function Payment() {
    return;
   }
 
-  setPaymentMessage(
-   `Opening PayPal.me for ${plan.price}. After payment, submit the PayPal transaction ID or payer email here.`
-  );
+  showManualPaymentPopup("paypal");
 
   window.open(
    plan.paypalLink,
    "_blank",
    "noopener,noreferrer"
   );
+ };
+
+ const uploadPaymentProof = async () => {
+  if (!proofFile || !account) return "";
+
+  const extension =
+   proofFile.name
+    ?.split(".")
+    .pop()
+    ?.toLowerCase() || "jpg";
+  const filePath = `${account.id}/${Date.now()}-${selectedPlan.plan}.${extension}`;
+
+  const { error: uploadError } =
+   await supabase.storage
+    .from("payment-proofs")
+    .upload(filePath, proofFile, {
+     cacheControl: "3600",
+     upsert: true
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage
+   .from("payment-proofs")
+   .getPublicUrl(filePath);
+
+  return data.publicUrl;
+ };
+
+ const savePaymentSubmission = async (
+  proofUrl = ""
+ ) => {
+  const submission = {
+   user_id: account.id,
+   email: account.email,
+   name: account.name || null,
+   current_plan: account.plan || PLANS.FREE,
+   requested_plan: selectedPlan.plan,
+   requested_plan_name: selectedPlan.name,
+   amount: Number(selectedPlan.amount),
+   upi_amount: Number(selectedPlan.upiAmount),
+   payment_method: paymentMethod,
+   transaction_id: transactionId.trim(),
+   payer_name: payerName.trim() || null,
+   contact: contact.trim() || null,
+   note: note.trim() || null,
+   proof_url: proofUrl || null,
+   status: "pending_review"
+  };
+
+  const { error: insertError } =
+   await supabase
+    .from("payment_submissions")
+    .insert(submission);
+
+  if (
+   insertError &&
+   /relation|schema cache|payment_submissions/i.test(
+    insertError.message || ""
+   )
+  ) {
+   const { error: profileError } =
+    await supabase
+     .from("profiles")
+     .upsert({
+      id: account.id,
+      email: account.email,
+      name: account.name || null,
+      payment_status: "pending_review",
+      paid_plan: selectedPlan.plan,
+      paid_amount: Number(selectedPlan.amount),
+      payment_provider:
+       paymentMethod === "upi"
+        ? "upi_manual"
+        : "paypal_manual",
+      payment_order_id:
+       transactionId.trim(),
+      payment_note: [
+       `Requested plan: ${selectedPlan.name}`,
+       `Method: ${paymentMethod}`,
+       `Payer: ${payerName || "Not provided"}`,
+       `Contact: ${contact || "Not provided"}`,
+       `Proof: ${proofUrl || "Not uploaded"}`,
+       `Note: ${note || "None"}`
+      ].join("\n")
+     }, {
+      onConflict: "id"
+     });
+
+   if (profileError) throw profileError;
+   return;
+  }
+
+  if (insertError) throw insertError;
+ };
+
+ const notifyPaymentApi = async (
+  proofUrl = ""
+ ) => {
+  try {
+   await fetch(
+    "/api/payment-notify",
+    {
+     method: "POST",
+     headers: {
+      "Content-Type": "application/json"
+     },
+     body: JSON.stringify({
+      userId: account.id,
+      email: account.email,
+      name: account.name,
+      currentPlan: account.plan,
+      requestedPlan: selectedPlan.plan,
+      requestedPlanName:
+       selectedPlan.name,
+      amount: selectedPlan.amount,
+      upiAmount: selectedPlan.upiAmount,
+      paymentMethod,
+      transactionId,
+      payerName,
+      contact,
+      note,
+      proofUrl
+     })
+    }
+   );
+  } catch (error) {
+   console.error(error);
+  }
  };
 
  const submitPaymentReview = async (
@@ -167,48 +316,10 @@ export default function Payment() {
   setPaymentMessage("");
 
   try {
-   const response = await fetch(
-    "/api/payment-notify",
-    {
-     method: "POST",
-     headers: {
-      "Content-Type": "application/json"
-     },
-     body: JSON.stringify({
-      userId: account.id,
-      email: account.email,
-      name: account.name,
-      currentPlan: account.plan,
-      requestedPlan: selectedPlan.plan,
-      requestedPlanName:
-       selectedPlan.name,
-      amount: selectedPlan.amount,
-      upiAmount: selectedPlan.upiAmount,
-      paymentMethod,
-      transactionId,
-      payerName,
-      contact,
-      note
-     })
-    }
-   );
-   const text = await response.text();
-   let payload = {};
-
-   try {
-    payload = text ? JSON.parse(text) : {};
-   } catch {
-    payload = {
-     message:
-      "Payment details could not be submitted because the server returned an invalid response. Please try again after deployment or contact support with your transaction ID."
-    };
-   }
-
-   if (!response.ok) {
-    throw new Error(
-     getErrorMessage(payload)
-    );
-   }
+   const proofUrl =
+    await uploadPaymentProof();
+   await savePaymentSubmission(proofUrl);
+   notifyPaymentApi(proofUrl);
 
    setPaymentMessage(
     "Payment details submitted. Hang tight while we confirm your payment details."
@@ -220,6 +331,8 @@ export default function Payment() {
    setPayerName("");
    setContact("");
    setNote("");
+   setProofFile(null);
+   setProofPreview("");
   } catch (error) {
    setPaymentMessage(
     getErrorMessage(error)
@@ -283,7 +396,7 @@ export default function Payment() {
          className="w-full max-w-sm rounded-lg border border-zinc-700 bg-white"
         />
         <p className="text-zinc-400 mt-4">
-         UPI ID: 8949720403@yapl
+         UPI ID: {UPI_ID}
         </p>
        </div>
       )}
@@ -374,6 +487,32 @@ export default function Payment() {
         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg resize-none"
        />
 
+       <div>
+        <label className="block text-sm text-zinc-400 mb-2">
+         Upload payment screenshot / receipt
+        </label>
+        <input
+         type="file"
+         accept="image/*"
+         onChange={(event) => {
+          const file =
+           event.target.files?.[0] || null;
+          setProofFile(file);
+          setProofPreview(
+           file ? URL.createObjectURL(file) : ""
+          );
+         }}
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
+        />
+        {proofPreview && (
+         <img
+          src={proofPreview}
+          alt="Payment proof preview"
+          className="mt-3 w-full max-w-xs rounded-lg border border-zinc-700"
+         />
+        )}
+       </div>
+
        <button
         disabled={loading || submitting}
         className="bg-yellow-400 text-black p-4 rounded-lg font-bold disabled:opacity-60"
@@ -440,7 +579,7 @@ export default function Payment() {
             : "bg-yellow-400 text-black"
           }`}
          >
-          PayPal.me - {plan.price}
+          PayPal - {plan.price}
          </button>
 
          <button
@@ -454,7 +593,7 @@ export default function Payment() {
             : "border-zinc-700 text-white"
           }`}
          >
-          UPI - {plan.upiPrice}
+          UPI
          </button>
         </div>
 

@@ -11,6 +11,51 @@ const normalizeAnswer = (value) =>
   .toLowerCase()
   .replace(/[^a-z0-9]/g, "");
 
+const getActiveLyrics = async () => {
+ let response = await supabase
+  .from("lyrics_questions")
+  .select("*")
+  .eq("is_active", true)
+  .order("sort_order", { ascending: true });
+
+ if (
+  response.error &&
+  /is_active|sort_order|schema cache|column/i.test(
+   response.error.message || ""
+  )
+ ) {
+  response = await supabase
+   .from("lyrics_questions")
+   .select("*");
+ }
+
+ if (
+  response.error &&
+  /relation|table/i.test(
+   response.error.message || ""
+  )
+ ) {
+  return response;
+ }
+
+ const rows = response.data || [];
+
+ return {
+  data: rows
+   .filter(
+    (item) =>
+     item.is_active !== false &&
+     item.active !== false
+   )
+   .sort(
+    (a, b) =>
+     Number(a.sort_order || 0) -
+     Number(b.sort_order || 0)
+   ),
+  error: response.error
+ };
+};
+
 export default function LyricsGame() {
  const navigate = useNavigate();
  const [account, setAccount] = useState(null);
@@ -35,16 +80,15 @@ export default function LyricsGame() {
     return;
    }
 
-   const { data, error } = await supabase
-    .from("lyrics_questions")
-    .select("*")
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true });
+   const { data, error } =
+    await getActiveLyrics();
 
    if (!active) return;
 
    if (error) {
-    setFeedback(error.message);
+    setFeedback(
+     `Lyrics could not load: ${error.message}`
+    );
     setLoading(false);
     return;
    }
@@ -99,6 +143,11 @@ export default function LyricsGame() {
      <h1 className="text-3xl font-bold mb-4">
       No lyrics questions found
      </h1>
+     {feedback && (
+      <p className="text-red-200 bg-red-500/10 border border-red-500/40 rounded-lg p-4 mb-4 max-w-xl">
+       {feedback}
+      </p>
+     )}
      <button
       onClick={() => navigate("/categories")}
       className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
