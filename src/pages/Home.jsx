@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { supabase } from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
+import { getAccount } from "../lib/account";
 
 const insertRoomPlayer = async (payload) => {
  const { error } = await supabase
@@ -33,6 +34,25 @@ export default function Home(){
  const [roomCode, setRoomCode] = useState("");
  const [username, setUsername] = useState("");
  const [joining, setJoining] = useState(false);
+ const [account, setAccount] = useState(null);
+
+ useEffect(() => {
+  let active = true;
+
+  const loadAccount = async () => {
+   const nextAccount = await getAccount();
+
+   if (active) {
+    setAccount(nextAccount);
+   }
+  };
+
+  loadAccount();
+
+  return () => {
+   active = false;
+  };
+ }, []);
 
  const joinRoom = async (event) => {
   event.preventDefault();
@@ -101,7 +121,8 @@ export default function Home(){
    const { error } = await insertRoomPlayer({
      room_code: upperCode,
      player_id: playerId,
-     account_id: null,
+     account_id: account?.id || null,
+     avatar_url: account?.avatarUrl || null,
      username: username.trim(),
      score: 0
     });
@@ -113,7 +134,11 @@ export default function Home(){
    }
   }
 
-  navigate(`/room/${upperCode}`);
+  navigate(
+   `/room/${upperCode}${
+    account?.id ? `?account=${account.id}` : ""
+   }`
+  );
  };
 
  return (
@@ -123,6 +148,15 @@ export default function Home(){
    <p className="text-gray-400 max-w-xl mb-8">
     Guess movie and TV dialogues with friends in realtime multiplayer.
    </p>
+
+   {account && (
+    <button
+     onClick={() => navigate("/multiplayer")}
+     className="mb-5 bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
+    >
+     Open Profile
+    </button>
+   )}
 
    <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-6 mb-5">
     <h2 className="text-2xl font-bold mb-4">

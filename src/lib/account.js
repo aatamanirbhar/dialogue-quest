@@ -1,12 +1,52 @@
 import { supabase } from "./supabase";
 
 const TRIAL_LIMIT = 2;
+const HISTORY_TABLE = "match_history";
+const LEGACY_HISTORY_TABLE = "play_history";
 
 export const PLANS = {
  FREE: "free",
  PREMIUM: "premium",
  PREMIUM_PLUS: "premium_plus"
 };
+
+export function getPlanLabel(plan) {
+ if (plan === PLANS.PREMIUM_PLUS) {
+  return "Premium Plus";
+ }
+
+ if (plan === PLANS.PREMIUM) {
+  return "Premium";
+ }
+
+ return "Free";
+}
+
+export function getPlanBenefits(plan) {
+ if (plan === PLANS.PREMIUM_PLUS) {
+  return [
+   "Unlimited hosted multiplayer rooms",
+   "Joiner play-again notifications",
+   "Early access to Complete the Lyrics",
+   "Premium badges and profile highlights"
+  ];
+ }
+
+ if (plan === PLANS.PREMIUM) {
+  return [
+   "Unlimited hosted multiplayer rooms",
+   "Mix categories across game modes",
+   "Keep playing after the free-room trial",
+   "Premium badge on your profile"
+  ];
+ }
+
+ return [
+  "2 free hosted rooms",
+  "Basic profile and match history",
+  "Upgrade anytime to unlock more"
+ ];
+}
 
 const defaultProfile = {
  name: "",
@@ -23,7 +63,6 @@ const mapProfile = (profile, user) => ({
  id: user?.id || profile?.id,
 name:
   profile?.name ||
-  profile?.username ||
   user?.user_metadata?.name ||
   "",
  email: profile?.email || user?.email || "",
@@ -92,10 +131,6 @@ export async function ensureProfile(user) {
      user.user_metadata?.name ||
      user.email?.split("@")[0] ||
      "Player",
-    username:
-     user.user_metadata?.name ||
-     user.email?.split("@")[0] ||
-     "Player",
     plan: PLANS.FREE,
     is_premium: false,
     rooms_created: 0
@@ -150,6 +185,15 @@ export async function createAccount({
  if (error) throw error;
 
  if (!data.user) return null;
+
+ if (
+  Array.isArray(data.user.identities) &&
+  data.user.identities.length === 0
+ ) {
+  throw new Error(
+   "This email is already in use. Please log in or reset your password."
+  );
+ }
 
  return mapProfile(
   null,
@@ -206,7 +250,6 @@ export async function updateProfile({
 
  if (typeof name === "string") {
   updates.name = name.trim();
-  updates.username = name.trim();
  }
 
  if (typeof avatarUrl === "string") {
@@ -297,6 +340,19 @@ export async function updatePassword(password) {
  if (error) throw error;
 }
 
+export async function requestPasswordReset(email) {
+ const cleanEmail = email.trim();
+ const { error } = await supabase.auth.resetPasswordForEmail(
+  cleanEmail,
+  {
+   redirectTo:
+    `${window.location.origin}/multiplayer?auth=signin`
+  }
+ );
+
+ if (error) throw error;
+}
+
 export async function signOutAccount() {
  await supabase.auth.signOut();
  window.dispatchEvent(
@@ -336,18 +392,17 @@ export async function upgradeAccount(plan) {
 
  if (!user) return null;
 
- const paidAt = new Date().toISOString();
- const fullPaymentUpdate = {
-  id: user.id,
-  email: user.email,
-  plan,
-  is_premium: true,
-  paid_at: paidAt,
-  payment_status: "paid",
-  paid_plan: plan,
-  paid_amount:
-   plan === PLANS.PREMIUM ? 15 : 29
- };
+  const paidAt = new Date().toISOString();
+  const fullPaymentUpdate = {
+   id: user.id,
+   email: user.email,
+   plan,
+   is_premium: true,
+   paid_at: paidAt,
+   payment_status: "paid",
+   paid_plan: plan,
+   paid_amount: 0.1
+  };
  const corePaymentUpdate = {
   id: user.id,
   email: user.email,
@@ -412,11 +467,28 @@ export async function recordPlayHistory(entry) {
   metadata: entry.metadata || {}
  };
 
- const { data, error } = await supabase
-  .from("play_history")
-  .insert(payload)
-  .select("*")
-  .single();
+ const writeHistory = async (table) =>
+  supabase
+   .from(table)
+   .insert(payload)
+   .select("*")
+   .single();
+
+ let response = await writeHistory(HISTORY_TABLE);
+ let { data, error } = response;
+
+ if (
+  error &&
+  /relation|table|schema cache/i.test(
+   error.message || ""
+  )
+ ) {
+  response = await writeHistory(
+   LEGACY_HISTORY_TABLE
+  );
+  data = response.data;
+  error = response.error;
+ }
 
  if (error) {
   console.error(error);
@@ -432,14 +504,33 @@ export async function getPlayHistory(limit = 30) {
 
  if (!user) return [];
 
- const { data, error } = await supabase
-  .from("play_history")
-  .select("*")
-  .eq("user_id", user.id)
-  .order("created_at", {
-   ascending: false
-  })
-  .limit(limit);
+ const readHistory = async (table) =>
+  supabase
+   .from(table)
+   .select("*")
+   .eq("user_id", user.id)
+   .order("created_at", {
+    ascending: false
+   })
+   .limit(limit);
+
+ let response = await readHistory(
+  HISTORY_TABLE
+ );
+ let { data, error } = response;
+
+ if (
+  error &&
+  /relation|table|schema cache/i.test(
+   error.message || ""
+  )
+) {
+  response = await readHistory(
+   LEGACY_HISTORY_TABLE
+  );
+  data = response.data;
+  error = response.error;
+ }
 
  if (error) {
   console.error(error);

@@ -13,11 +13,14 @@ import {
  PLANS,
  createAccount,
  getAccount,
+ getPlanBenefits,
+ getPlanLabel,
  getPlayHistory,
  getTrialCreditsLeft,
  isPremium,
  isPremiumPlus,
  onAccountChange,
+ requestPasswordReset,
  resendConfirmationEmail,
  signInAccount,
  signOutAccount,
@@ -31,18 +34,6 @@ import {
  getInsight,
  getPlayerTitle
 } from "../lib/playerStats";
-
-const getPlanLabel = (plan) => {
- if (plan === PLANS.PREMIUM_PLUS) {
-  return "Premium Plus";
- }
-
- if (plan === PLANS.PREMIUM) {
-  return "Premium";
- }
-
- return "Free Trial";
-};
 
 const mixCategoryOptions = [
  {
@@ -101,8 +92,12 @@ export default function MultiplayerLobby() {
   useState("signin");
  const [authLoading, setAuthLoading] =
   useState(true);
+ const [authSubmitting, setAuthSubmitting] =
+  useState(false);
  const [authMessage, setAuthMessage] =
   useState("");
+ const [showResetPrompt, setShowResetPrompt] =
+  useState(false);
  const [accountName, setAccountName] =
   useState("");
  const [accountEmail, setAccountEmail] =
@@ -145,6 +140,14 @@ export default function MultiplayerLobby() {
   useState(false);
  const [playHistory, setPlayHistory] =
   useState([]);
+
+ useEffect(() => {
+  window.scrollTo({
+   top: 0,
+   left: 0,
+   behavior: "auto"
+  });
+ }, [authMode]);
 
  useEffect(() => {
   const codeParam =
@@ -275,6 +278,21 @@ export default function MultiplayerLobby() {
  const hasPremiumPlus = isPremiumPlus(account);
  const playerTitle = getPlayerTitle(playHistory);
  const playerInsight = getInsight(playHistory);
+ const planLabel = getPlanLabel(
+  account?.plan || PLANS.FREE
+ );
+ const planBenefits = getPlanBenefits(
+  account?.plan || PLANS.FREE
+ );
+ const winCount = playHistory.filter(
+  (item) => item.result === "win"
+ ).length;
+ const tieCount = playHistory.filter(
+  (item) => item.result === "tie"
+ ).length;
+ const lossCount = playHistory.filter(
+  (item) => item.result === "loss"
+ ).length;
 
  const saveProfile = async (event) => {
   event.preventDefault();
@@ -408,6 +426,19 @@ export default function MultiplayerLobby() {
   });
  };
 
+ const showLyricsPremiumPlusGate = () => {
+  setGateNotice({
+   eyebrow: "Premium Plus",
+   title: "Complete the Lyrics is locked.",
+   body:
+    "Premium Plus unlocks early access to the Complete the Lyrics game section in solo and multiplayer.",
+   primaryLabel: "Upgrade to Premium Plus",
+   secondaryLabel: "Maybe later",
+   onPrimary: () => navigate("/payment"),
+   onSecondary: () => setGateNotice(null)
+  });
+ };
+
  const toggleMixCategory = (value) => {
   setSelectedMixCategories((current) => {
    if (current.includes(value)) {
@@ -466,7 +497,7 @@ export default function MultiplayerLobby() {
    return;
   }
 
-  setAuthLoading(true);
+  setAuthSubmitting(true);
   setAuthMessage("");
 
   try {
@@ -495,9 +526,22 @@ export default function MultiplayerLobby() {
     );
    }
   } catch (error) {
-   setAuthMessage(error.message);
+   const message = String(error.message || "");
+   if (
+    /already registered|already has an account|email.*exists|user already exists/i.test(
+     message
+    )
+   ) {
+    setShowResetPrompt(true);
+    setAuthMessage(
+     "This email is already in use. Please log in or reset your password."
+    );
+   } else {
+    setShowResetPrompt(false);
+    setAuthMessage(message);
+   }
   } finally {
-   setAuthLoading(false);
+   setAuthSubmitting(false);
   }
  };
 
@@ -611,6 +655,8 @@ export default function MultiplayerLobby() {
 
      account_id: account.id,
 
+     avatar_url: account.avatarUrl || null,
+
      username,
 
      score: 0
@@ -700,6 +746,8 @@ export default function MultiplayerLobby() {
 
       account_id: account.id,
 
+      avatar_url: account.avatarUrl || null,
+
       username,
 
       score: 0
@@ -766,6 +814,22 @@ export default function MultiplayerLobby() {
       onSubmit={handleAuth}
       className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8"
      >
+      {authSubmitting && authMode === "signup" && (
+       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-6 text-center shadow-2xl">
+         <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-4">
+          Getting things ready for you
+         </p>
+         <h2 className="text-2xl font-bold mb-3">
+          Creating your account
+         </h2>
+         <p className="text-zinc-400">
+          Hang tight while we set up your profile and confirmation email.
+         </p>
+        </div>
+       </div>
+      )}
+
       <p className="text-yellow-400 uppercase tracking-[0.25em] text-sm mb-3">
        Account Required
       </p>
@@ -784,6 +848,27 @@ export default function MultiplayerLobby() {
        <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-100 rounded-lg p-4 mb-5">
         {authMessage}
        </div>
+      )}
+
+      {showResetPrompt && (
+       <button
+        type="button"
+        onClick={async () => {
+         try {
+          await requestPasswordReset(
+           accountEmail
+          );
+          setAuthMessage(
+           "Password reset email sent. Check your inbox."
+          );
+         } catch (error) {
+          setAuthMessage(error.message);
+         }
+        }}
+        className="w-full bg-zinc-950 border border-zinc-700 p-4 rounded-lg font-bold mb-5"
+       >
+        Reset password
+       </button>
       )}
 
       {authMode === "signup" && (
@@ -819,11 +904,14 @@ export default function MultiplayerLobby() {
 
       <button
        type="submit"
+       disabled={authSubmitting}
        className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold"
       >
-       {authMode === "signup"
-        ? "Create Account"
-        : "Login"}
+       {authSubmitting
+        ? "Working..."
+        : authMode === "signup"
+         ? "Create Account"
+         : "Login"}
       </button>
 
       <button
@@ -968,6 +1056,65 @@ export default function MultiplayerLobby() {
          <p className="text-zinc-400 text-sm">
           {playerInsight}
          </p>
+         <div className="flex flex-wrap gap-2 mt-3">
+          <span className="rounded-full border border-yellow-400/40 bg-yellow-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-yellow-300">
+           {planLabel}
+          </span>
+          {isPremiumPlus(account) && (
+           <span className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-300">
+            Premium Plus badge
+           </span>
+          )}
+          {isPremium(account) &&
+           !isPremiumPlus(account) && (
+            <span className="rounded-full border border-yellow-400/40 bg-yellow-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-yellow-300">
+             Premium badge
+            </span>
+           )}
+         </div>
+        </div>
+       </div>
+
+       <div className="grid sm:grid-cols-3 gap-3 mb-6">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+         <p className="text-zinc-400 text-xs uppercase tracking-[0.2em] mb-2">
+          Wins
+         </p>
+         <p className="text-3xl font-bold text-yellow-300">
+          {winCount}
+         </p>
+        </div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+         <p className="text-zinc-400 text-xs uppercase tracking-[0.2em] mb-2">
+          Ties
+         </p>
+         <p className="text-3xl font-bold text-yellow-300">
+          {tieCount}
+         </p>
+        </div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+         <p className="text-zinc-400 text-xs uppercase tracking-[0.2em] mb-2">
+          Losses
+         </p>
+         <p className="text-3xl font-bold text-yellow-300">
+          {lossCount}
+         </p>
+        </div>
+       </div>
+
+       <div className="mb-6">
+        <h3 className="text-lg font-bold mb-3">
+         Your plan benefits
+        </h3>
+        <div className="grid gap-2">
+         {planBenefits.map((benefit) => (
+          <div
+           key={benefit}
+           className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-sm text-zinc-300"
+          >
+           {benefit}
+          </div>
+         ))}
         </div>
        </div>
 
@@ -1047,12 +1194,15 @@ export default function MultiplayerLobby() {
             <p className="text-zinc-400 text-sm mt-2">
              Score {item.score} /{" "}
              {item.total_questions || "-"}
+             {item.opponent_count !== undefined
+              ? ` - ${item.opponent_count} opponents`
+              : ""}
              {item.room_code
               ? ` - Room ${item.room_code}`
               : ""}
             </p>
-           </div>
-          ))}
+          </div>
+         ))}
          </div>
         ) : (
          <p className="text-zinc-400">
@@ -1126,6 +1276,50 @@ export default function MultiplayerLobby() {
       </div>
      </div>
     )}
+
+    <div className="border border-yellow-500/40 bg-zinc-950 rounded-2xl p-5 mb-5">
+     <div className="flex items-start justify-between gap-4 mb-4">
+      <div>
+       <h2 className="text-2xl font-bold">
+        Complete the Lyrics
+       </h2>
+       <p className="text-zinc-400 mt-2">
+        {hasPremiumPlus
+         ? "Premium Plus early access unlocked."
+         : "Locked until Premium Plus is active."}
+       </p>
+      </div>
+      <span className={`text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border ${
+       hasPremiumPlus
+        ? "text-cyan-300 border-cyan-400/40 bg-cyan-400/10"
+        : "text-yellow-300 border-yellow-500/40"
+      }`}>
+       {hasPremiumPlus ? "Unlocked" : "Premium Plus"}
+      </span>
+     </div>
+     <button
+      type="button"
+      onClick={() => {
+       if (!hasPremiumPlus) {
+        showLyricsPremiumPlusGate();
+        return;
+       }
+       setGateNotice({
+        eyebrow: "Coming next",
+        title: "Lyrics multiplayer is unlocked.",
+        body:
+         "Premium Plus access is confirmed. The lyrics game section can be opened from the categories page when its route is added.",
+        primaryLabel: "Close",
+        onPrimary: () => setGateNotice(null)
+       });
+      }}
+      className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
+     >
+      {hasPremiumPlus
+       ? "Open Lyrics Multiplayer"
+       : "Unlock Lyrics Multiplayer"}
+     </button>
+    </div>
 
     <select
      value={selectedRounds}

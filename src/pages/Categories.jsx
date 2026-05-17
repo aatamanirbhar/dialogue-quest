@@ -5,7 +5,8 @@ import React, {
 import { useNavigate } from "react-router-dom";
 import {
  getAccount,
- isPremium
+ isPremium,
+ isPremiumPlus
 } from "../lib/account";
 
 const categories = [
@@ -48,6 +49,8 @@ export default function Categories() {
   useState(true);
  const [premiumNotice, setPremiumNotice] =
   useState(false);
+ const [lyricsNotice, setLyricsNotice] =
+  useState(false);
  const [selectedMixCategories, setSelectedMixCategories] =
   useState(["hollywood", "tvshows"]);
 
@@ -74,6 +77,11 @@ export default function Categories() {
  }, []);
 
  const hasPremium = isPremium(account);
+ const hasPremiumPlus = isPremiumPlus(account);
+
+ const openLyricsGate = () => {
+  setLyricsNotice(true);
+ };
 
  const openPremiumMixNotice = () => {
   setPremiumNotice(true);
@@ -162,6 +170,39 @@ export default function Categories() {
         Keep Browsing
        </button>
       </div>
+    </div>
+   </div>
+   )}
+
+   {lyricsNotice && (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+     <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
+      <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-4">
+       Premium Plus
+      </p>
+      <h2 className="text-3xl font-bold leading-tight mb-4">
+       Complete the Lyrics is locked.
+      </h2>
+      <p className="text-zinc-400 leading-relaxed mb-6">
+       This section opens with Premium Plus early access for solo and multiplayer.
+      </p>
+
+      <div className="grid gap-3">
+       <button
+        onClick={() => navigate("/payment")}
+        className="bg-yellow-400 text-black p-4 rounded-lg font-bold"
+       >
+        Upgrade to Premium Plus
+       </button>
+       <button
+        onClick={() =>
+         setLyricsNotice(false)
+        }
+        className="bg-zinc-900 border border-zinc-800 p-4 rounded-lg font-bold"
+       >
+        Keep Browsing
+       </button>
+      </div>
      </div>
     </div>
    )}
@@ -174,7 +215,7 @@ export default function Categories() {
      Back
     </button>
 
-    <h1 className="text-5xl font-bold mb-4">
+   <h1 className="text-5xl font-bold mb-4">
      Choose Category
     </h1>
     <p className="text-zinc-400 mb-10">
@@ -186,6 +227,43 @@ export default function Categories() {
     </p>
 
     <div className="grid md:grid-cols-2 gap-6">
+     <div className="bg-zinc-900 border border-yellow-500/40 rounded-2xl p-6 sm:p-8 md:col-span-2">
+      <div className="flex items-start justify-between gap-4 mb-4">
+       <div>
+        <h2 className="text-3xl font-bold">
+         Complete the Lyrics
+        </h2>
+        <p className="text-zinc-400 mt-3">
+         {hasPremiumPlus
+          ? "Premium Plus early access is unlocked. Jump into the lyrics section."
+          : "Premium Plus early access. Unlock this section to play the lyrics game in solo and multiplayer."}
+        </p>
+       </div>
+       <span className={`text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border ${
+        hasPremiumPlus
+         ? "text-cyan-300 border-cyan-400/40 bg-cyan-400/10"
+         : "text-yellow-300 border-yellow-500/40"
+       }`}>
+        {hasPremiumPlus ? "Unlocked" : "Premium Plus"}
+       </span>
+      </div>
+
+      <div className="flex gap-4 flex-wrap">
+       <button
+        onClick={() => {
+         if (!hasPremiumPlus) {
+          openLyricsGate();
+          return;
+         }
+         navigate("/payment");
+        }}
+        className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
+       >
+        {hasPremiumPlus ? "Open Lyrics Section" : "Unlock Premium Plus"}
+       </button>
+      </div>
+     </div>
+
      {categories.map((item) => {
       const locked =
        item === "mix" && !hasPremium;

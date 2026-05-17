@@ -11,13 +11,13 @@ import {
 const plans = [
  {
   name: "Premium",
-  price: "$15",
-  amount: 15,
-  upiPrice: "Rs 1,299",
-  upiAmount: 1299,
+  price: "$0.10",
+  amount: 0.1,
+  upiPrice: "Rs 0.10",
+  upiAmount: 0.1,
   period: "lifetime account upgrade",
   audience: "Best for friend groups who host often.",
-  paypalEmail: "vikasdubey3811@gmail.com",
+  paypalLink: "https://paypal.me/vikas117/0.10",
   features: [
    "Unlimited hosted multiplayer rooms",
    "Keep playing after the 2 free-room trial",
@@ -29,18 +29,19 @@ const plans = [
  },
  {
   name: "Premium Plus",
-  price: "$29",
-  amount: 29,
-  upiPrice: "Rs 2,499",
-  upiAmount: 2499,
+  price: "$0.10",
+  amount: 0.1,
+  upiPrice: "Rs 0.10",
+  upiAmount: 0.1,
   period: "lifetime host upgrade",
   audience: "Made for parties, classrooms, and bigger game nights.",
-  paypalEmail: "vikasdubey3811@gmail.com",
+  paypalLink: "https://paypal.me/vikas117/0.10",
   features: [
    "Host rooms for up to 20 players",
    "Choose the exact player cap before hosting",
    "Skip trivia or end questions as the host",
-   "Early access to new party modes and categories"
+   "Joiners can request Play Again and notify the host",
+   "Early access to Complete the Lyrics game categories"
   ],
   plan: PLANS.PREMIUM_PLUS
  }
@@ -135,7 +136,13 @@ export default function Payment() {
   }
 
   setPaymentMessage(
-   `Send ${plan.price} to PayPal email ${plan.paypalEmail}. After payment, submit the PayPal transaction ID or payer email here.`
+   `Opening PayPal.me for ${plan.price}. After payment, submit the PayPal transaction ID or payer email here.`
+  );
+
+  window.open(
+   plan.paypalLink,
+   "_blank",
+   "noopener,noreferrer"
   );
  };
 
@@ -151,7 +158,7 @@ export default function Payment() {
 
   if (!transactionId.trim()) {
    setPaymentMessage(
-    "Add the PayPal transaction ID, receipt number, or the email/name used for payment."
+    "Add the PayPal transaction ID, UPI reference ID, receipt number, or the email/name used for payment."
    );
    return;
   }
@@ -241,7 +248,7 @@ export default function Payment() {
       </h1>
 
       <p className="text-zinc-400 text-lg leading-relaxed mb-6">
-       Pay with PayPal or UPI, then submit your transaction details below. Premium access is reviewed manually and can take up to 1 day to activate.
+       Pay with PayPal.me or UPI, then submit your transaction details below. Premium access is reviewed manually and can take up to 1 day to activate.
       </p>
 
       <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-100 rounded-lg p-4 mb-8">
@@ -341,7 +348,7 @@ export default function Payment() {
         onChange={(event) =>
          setPayerName(event.target.value)
         }
-        placeholder="Name or PayPal email used for payment"
+        placeholder="Name, PayPal account, or UPI name used for payment"
         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
        />
 
@@ -430,8 +437,8 @@ export default function Payment() {
             : "bg-yellow-400 text-black"
           }`}
          >
-         PayPal - {plan.price}
-        </button>
+          PayPal.me - {plan.price}
+         </button>
 
          <button
           onClick={() =>

@@ -31,6 +31,7 @@ const FAST_BONUS_SECONDS = 8;
 const CORRECT_POINTS = 10;
 const FAST_BONUS_POINTS = 5;
 const WRONG_PENALTY_POINTS = 3;
+const POPCORN_EMOJI = "🍿";
 const DEFAULT_MIX_CATEGORIES = [
  "hollywood",
  "tvshows"
@@ -195,6 +196,10 @@ export default function Room() {
  const [now, setNow] = useState(Date.now());
  const [finalNote, setFinalNote] =
   useState(null);
+ const [playAgainNotice, setPlayAgainNotice] =
+  useState("");
+ const [replayRequests, setReplayRequests] =
+  useState([]);
 
  const advancingRef = useRef(false);
  const previousPlayersRef = useRef([]);
@@ -256,6 +261,35 @@ export default function Room() {
   }, 2800);
  };
 
+ const playArenaSound = (kind = "applause") => {
+  const AudioContextCtor =
+   window.AudioContext ||
+   window.webkitAudioContext;
+  if (!AudioContextCtor) return;
+
+  const context = new AudioContextCtor();
+  const gain = context.createGain();
+  gain.gain.value = 0.0001;
+  gain.connect(context.destination);
+
+  const tone =
+   kind === "applause" ? 880 : 520;
+  const oscillator = context.createOscillator();
+  oscillator.type = "square";
+  oscillator.frequency.value = tone;
+  oscillator.connect(gain);
+  oscillator.start();
+  gain.gain.exponentialRampToValueAtTime(
+   0.02,
+   context.currentTime + 0.02
+  );
+  gain.gain.exponentialRampToValueAtTime(
+   0.0001,
+   context.currentTime + 0.3
+  );
+  oscillator.stop(context.currentTime + 0.32);
+ };
+
  const fetchRoom = async () => {
   const { data } = await supabase
    .from("rooms")
@@ -264,6 +298,14 @@ export default function Room() {
    .maybeSingle();
 
   setRoom(data || null);
+
+  if (data?.play_again_requester_names?.length) {
+   setReplayRequests(
+    data.play_again_requester_names
+   );
+  } else {
+   setReplayRequests([]);
+  }
  };
 
  const fetchPlayers = async () => {
@@ -280,7 +322,7 @@ export default function Room() {
    previousPlayersRef.current;
 
   if (previousPlayers.length) {
-   nextPlayers.forEach((player) => {
+  nextPlayers.forEach((player) => {
     const previous = previousPlayers.find(
      (item) => item.id === player.id
     );
@@ -304,6 +346,7 @@ export default function Room() {
         : ""
       }.`
      );
+     playArenaSound("applause");
      return;
     }
 
@@ -312,6 +355,7 @@ export default function Room() {
       player.last_answer_text || "unknown"
      }" - incorrect -${WRONG_PENALTY_POINTS}.`
     );
+    playArenaSound("popcorn");
    });
   }
 
@@ -548,6 +592,9 @@ export default function Room() {
     game_started: true,
     game_finished: false,
     winner: null,
+    play_again_requesters: [],
+    play_again_requester_names: [],
+    play_again_requested_at: null,
     current_question: 0,
     current_quote_id: firstQuoteId,
     question_started_at:
@@ -652,7 +699,7 @@ export default function Room() {
      ascending: false
     });
 
- const { data } = await supabase
+  const { data } = await supabase
    .from("rooms")
    .update({
     game_finished: true,
@@ -661,7 +708,10 @@ export default function Room() {
     ),
     trivia_active: false,
     trivia_ends_at: null,
-    processing_answer: false
+    processing_answer: false,
+    play_again_requesters: [],
+    play_again_requester_names: [],
+    play_again_requested_at: null
    })
    .eq("room_code", code)
    .eq(
@@ -974,7 +1024,46 @@ export default function Room() {
    return;
   }
 
+  playArenaSound(isCorrect ? "applause" : "popcorn");
   setMessage("");
+ };
+
+ const requestPlayAgain = async () => {
+  if (!room || !account || !isPremiumPlus(account)) {
+   return;
+  }
+
+  const requestName =
+   account.name || me?.username || account.email;
+  const requestId = account.id || playerId;
+  const currentIds =
+   room.play_again_requesters || [];
+  const currentNames =
+   room.play_again_requester_names || [];
+
+  if (!currentIds.includes(requestId)) {
+   const nextNames = [
+    ...currentNames,
+    requestName
+   ];
+
+   await supabase
+    .from("rooms")
+    .update({
+     play_again_requesters: [
+      ...currentIds,
+      requestId
+     ],
+     play_again_requester_names: nextNames,
+     play_again_requested_at:
+      toSupabaseTime()
+    })
+    .eq("room_code", code);
+
+   setPlayAgainNotice(
+    "The host will be notified that you want to play again."
+   );
+  }
  };
 
  const leaveRoom = async () => {
@@ -1061,49 +1150,93 @@ export default function Room() {
  return (
   <div className="min-h-screen bg-black text-white p-6 lg:p-10">
    {room.game_finished && (
-    <div className="fixed inset-0 bg-black z-50 flex items-center justify-center p-6">
-     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center max-w-2xl w-full">
-      <div className="text-sm uppercase tracking-[0.3em] text-yellow-400 mb-4">
+    <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto p-4 sm:p-6">
+     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-6 text-center max-w-3xl w-full mx-auto my-4 sm:my-8">
+      <div className="text-xs uppercase tracking-[0.3em] text-yellow-400 mb-3">
        Final Result
       </div>
 
-      <h2 className="text-5xl font-bold mb-4">
+      <h2 className="text-3xl sm:text-4xl font-bold mb-4">
        {room.winner || "No Winner"}
       </h2>
 
       {finalNote && (
-       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 mb-6">
-        <p className="text-yellow-300 uppercase tracking-[0.25em] text-sm mb-2">
+       <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 mb-4">
+        <p className="text-yellow-300 uppercase tracking-[0.25em] text-xs mb-2">
          {finalNote.compliment}
         </p>
-        <p className="text-zinc-300">
+        <p className="text-zinc-300 text-sm">
          {finalNote.result === "tie"
           ? "Nobody blinked. That tie had serious final-round energy."
           : finalNote.result === "win"
            ? "Winner energy. That one goes in the history."
            : "Not your round, but definitely useful data for the comeback."}
+       </p>
+      </div>
+      )}
+
+      <p className="text-zinc-400 text-sm mb-5">
+       Everyone in this room can see the winner and final scorecard.
+      </p>
+
+      {replayRequests.length > 0 && (
+       <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl p-4 mb-4 text-left">
+        <p className="text-yellow-300 font-bold mb-2">
+         Play again requests
+        </p>
+        <p className="text-zinc-200">
+         {replayRequests.join(", ")} want another round.
         </p>
        </div>
       )}
 
-      <p className="text-zinc-400 mb-8">
-       The room is locked to current players. The host can play again here or close it.
-      </p>
+      {playAgainNotice && (
+       <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 mb-4 text-left">
+        {playAgainNotice}
+       </div>
+      )}
 
-      <div className="space-y-3 mb-8">
+      <div className="text-left mb-5">
+       <h3 className="text-xl font-bold mb-3">
+        Final Scorecard
+       </h3>
+       <div className="grid gap-2 max-h-[38vh] overflow-auto pr-1">
        {players.map((player, index) => (
         <div
          key={player.id}
-         className="flex justify-between bg-zinc-800 rounded-lg p-4"
+         className="flex items-center justify-between gap-3 bg-zinc-800 rounded-lg p-3"
         >
-         <span>
-          #{index + 1} {player.username}
+         <span className="flex items-center gap-3 min-w-0">
+          <span className="text-yellow-300 font-bold">
+           #{index + 1}
+          </span>
+          {player.avatar_url ? (
+           <img
+            src={player.avatar_url}
+            alt={player.username}
+            className="h-9 w-9 rounded-full object-cover"
+           />
+          ) : (
+           <span className="h-9 w-9 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-bold">
+            {player.username?.charAt(0)?.toUpperCase() ||
+             "P"}
+           </span>
+          )}
+          <span className="truncate">
+           {player.username}
+          </span>
+          {player.player_id === room.host_id && (
+           <span className="text-xs uppercase text-yellow-400">
+            Host
+           </span>
+          )}
          </span>
          <span className="font-bold text-yellow-400">
           {player.score}
          </span>
         </div>
        ))}
+       </div>
       </div>
 
       <div className="flex flex-wrap justify-center gap-3">
@@ -1123,6 +1256,15 @@ export default function Room() {
           Close Room
          </button>
         </>
+       )}
+
+       {!isHost && isPremiumPlus(account) && (
+        <button
+         onClick={requestPlayAgain}
+         className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
+        >
+         Play Again
+        </button>
        )}
 
        <button
@@ -1180,7 +1322,7 @@ export default function Room() {
     </div>
    )}
 
-   <div className="fixed top-4 left-4 right-4 z-40 grid gap-2 pointer-events-none sm:left-auto sm:right-6 sm:w-96">
+  <div className="fixed top-4 left-4 right-4 z-40 grid gap-2 pointer-events-none sm:left-auto sm:right-6 sm:w-96">
     {activityNotices.map((item) => (
      <div
       key={item.id}
@@ -1191,7 +1333,7 @@ export default function Room() {
     ))}
    </div>
 
-   <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-6 mb-8 sm:mb-10">
+  <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-6 mb-8 sm:mb-10">
     <div>
      <h1 className="text-4xl sm:text-5xl font-bold mb-2">
       Room {code}
@@ -1282,7 +1424,7 @@ export default function Room() {
      </div>
     </div>
   ) : (
-    <div className="grid lg:grid-cols-3 gap-6">
+     <div className="grid lg:grid-cols-3 gap-6">
      <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8">
       {quote ? (
        <>
@@ -1364,8 +1506,22 @@ export default function Room() {
          key={player.id}
          className="bg-zinc-800 rounded-lg p-5"
         >
-         <div className="flex justify-between items-center mb-2">
-          <span>{player.username}</span>
+        <div className="flex justify-between items-center mb-2">
+          <span className="flex items-center gap-2">
+           {player.avatar_url ? (
+            <img
+             src={player.avatar_url}
+             alt={player.username}
+             className="h-8 w-8 rounded-full object-cover"
+            />
+           ) : (
+            <span className="h-8 w-8 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-bold">
+             {player.username?.charAt(0)?.toUpperCase() ||
+              "P"}
+            </span>
+           )}
+           {player.username}
+          </span>
           <span>{player.score}</span>
          </div>
 
