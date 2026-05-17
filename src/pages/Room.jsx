@@ -37,6 +37,8 @@ const DEFAULT_MIX_CATEGORIES = [
  "tvshows"
 ];
 
+const getLocalTime = () => Date.now();
+
 const parseSupabaseTime = (value) => {
  if (!value) return null;
 
@@ -63,6 +65,9 @@ const parseSupabaseTime = (value) => {
 const toSupabaseTime = (date = new Date()) => {
  return date.toISOString();
 };
+
+const getRoomTime = (clockOffset = 0) =>
+ getLocalTime() + clockOffset;
 
 const getQuestionDuration = (room) => {
  const duration = Number(room?.question_duration);
@@ -101,7 +106,7 @@ const getRemainingTime = (
 
 const hasQuestionExpired = (
  room,
- currentTime = Date.now()
+ currentTime = getRoomTime()
 ) => {
  const remaining =
   getRemainingTime(
@@ -241,7 +246,12 @@ export default function Room() {
  const [activityNotices, setActivityNotices] =
   useState([]);
  const [account, setAccount] = useState(null);
- const [now, setNow] = useState(Date.now());
+ const [now, setNow] = useState(
+  getLocalTime()
+ );
+ const [clockOffset, setClockOffset] =
+  useState(0);
+ const clockOffsetRef = useRef(0);
  const [roomClosedNotice, setRoomClosedNotice] =
   useState(false);
  const [finalNote, setFinalNote] =
@@ -269,6 +279,10 @@ export default function Room() {
  const premiumMixEnabled =
   isPremium(account) &&
   isMixCategory(room?.category);
+
+ useEffect(() => {
+  clockOffsetRef.current = clockOffset;
+ }, [clockOffset]);
 
  useEffect(() => {
   let active = true;
@@ -668,6 +682,41 @@ export default function Room() {
  }, []);
 
  useEffect(() => {
+  let active = true;
+
+  const syncClock = async () => {
+   const requestStartedAt = getLocalTime();
+   const { data, error } = await supabase
+    .rpc("get_server_time");
+   const requestEndedAt = getLocalTime();
+
+   if (!active || error || !data) return;
+
+   const serverTime =
+    parseSupabaseTime(data);
+
+   if (!serverTime) return;
+
+   const midpoint =
+    requestStartedAt +
+    (requestEndedAt - requestStartedAt) / 2;
+
+   setClockOffset(serverTime - midpoint);
+  };
+
+  syncClock();
+  const interval = setInterval(
+   syncClock,
+   30000
+  );
+
+  return () => {
+   active = false;
+   clearInterval(interval);
+  };
+ }, []);
+
+ useEffect(() => {
   fetchCurrentQuote();
  }, [
   room?.current_question,
@@ -711,21 +760,49 @@ export default function Room() {
  }, []);
 
 useEffect(() => {
- const interval = setInterval(
-  () => {
-   setNow(Date.now());
-  },
-  100
- );
+ let timeoutId;
+
+ const tick = () => {
+  const nextNow =
+   getRoomTime(clockOffsetRef.current);
+
+  setNow(nextNow);
+
+  const startedAt =
+   parseSupabaseTime(
+    room?.question_started_at
+   );
+  const elapsedSinceStart =
+   startedAt
+    ? nextNow - startedAt
+    : nextNow;
+  const nextBoundaryDelay =
+   1000 -
+   (((elapsedSinceStart % 1000) + 1000) %
+    1000);
+  const delay =
+   nextBoundaryDelay === 1000
+    ? 1000
+    : nextBoundaryDelay + 5;
+
+  timeoutId = setTimeout(
+   tick,
+   Math.max(20, delay)
+  );
+ };
+
+ tick();
 
  return () =>
-  clearInterval(interval);
-}, []);
+  clearTimeout(timeoutId);
+}, [room?.question_started_at]);
 
  const startGame = async () => {
   if (!room || !isHost) return;
 
-  const startedAt = new Date();
+  const startedAt = new Date(
+   getRoomTime(clockOffset)
+  );
   setNotice("");
 
   await supabase
@@ -783,12 +860,13 @@ useEffect(() => {
   useMemo(() => {
    return getRemainingTime(
     room,
-    now
+    getRoomTime(clockOffset)
    );
   }, [
    room?.question_started_at,
    room?.question_duration,
-   now
+   now,
+   clockOffset
   ]);
 
 useEffect(() => {
@@ -814,7 +892,8 @@ useEffect(() => {
 
  const delay = Math.max(
   0,
-  startedAt + durationMs - Date.now()
+  startedAt + durationMs -
+   getRoomTime(clockOffset)
  );
 
  const timeout = setTimeout(
@@ -829,6 +908,7 @@ useEffect(() => {
  room?.trivia_active,
  room?.question_started_at,
  room?.question_duration,
+ clockOffset,
  isHost
 ]);
 
@@ -848,13 +928,17 @@ useEffect(() => {
 
   const timeout = setTimeout(
    () => endTrivia(),
-   Math.max(0, endsAt - Date.now())
+   Math.max(
+    0,
+    endsAt - getRoomTime(clockOffset)
+   )
   );
 
   return () => clearTimeout(timeout);
  }, [
   room?.trivia_active,
   room?.trivia_ends_at,
+  clockOffset,
   isHost
  ]);
 
@@ -992,7 +1076,10 @@ useEffect(() => {
     latestRoom.game_finished ||
     (
      !force &&
-     !hasQuestionExpired(latestRoom)
+     !hasQuestionExpired(
+      latestRoom,
+      getRoomTime(clockOffset)
+     )
     )
    ) {
     return;
@@ -1026,7 +1113,8 @@ useEffect(() => {
       trivia_ends_at:
        toSupabaseTime(
         new Date(
-         Date.now() + TRIVIA_DURATION
+         getRoomTime(clockOffset) +
+          TRIVIA_DURATION
         )
        ),
       processing_answer: false
@@ -1082,7 +1170,9 @@ useEffect(() => {
   })
     .eq("room_code", code);
 
-   const startedAt = new Date();
+   const startedAt = new Date(
+    getRoomTime(clockOffset)
+   );
 
    const { data } = await supabase
     .from("rooms")
@@ -1153,7 +1243,10 @@ useEffect(() => {
   const duration =
    getQuestionDuration(room);
   const remaining =
-   getRemainingTime(room, Date.now());
+   getRemainingTime(
+    room,
+    getRoomTime(clockOffset)
+   );
   const fastBonus =
    isCorrect &&
    duration &&
