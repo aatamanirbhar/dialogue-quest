@@ -64,23 +64,6 @@ const toSupabaseTime = (date = new Date()) => {
  return date.toISOString();
 };
 
-const getServerTimeMs = async () => {
- const { data, error } = await supabase.rpc(
-  "get_server_time"
- );
-
- if (error || !data) {
-  return Date.now();
- }
-
- const value = Array.isArray(data)
-  ? data[0]
-  : data;
- const time = parseSupabaseTime(value);
-
- return time || Date.now();
-};
-
 const getQuestionDuration = (room) => {
  const duration = Number(room?.question_duration);
 
@@ -94,16 +77,14 @@ const getRemainingTime = (room, currentTime) => {
 
  if (!duration) return null;
 
- if (room?.question_ends_at) {
-  const endsAt =
-   parseSupabaseTime(room.question_ends_at);
-
-  if (endsAt) {
-   return Math.max(
-    0,
-    Math.ceil((endsAt - currentTime) / 1000)
-   );
-  }
+ if (
+  room?.timer_seconds_left !== undefined &&
+  room?.timer_seconds_left !== null
+ ) {
+  return Math.max(
+   0,
+   Number(room.timer_seconds_left) || 0
+  );
  }
 
  if (!room?.question_started_at) {
@@ -127,6 +108,13 @@ const getRemainingTime = (room, currentTime) => {
 };
 
 const hasQuestionExpired = (room) => {
+ if (
+  room?.timer_seconds_left !== undefined &&
+  room?.timer_seconds_left !== null
+ ) {
+  return Number(room.timer_seconds_left) <= 0;
+ }
+
  const remaining =
   getRemainingTime(room, Date.now());
 
@@ -260,8 +248,6 @@ export default function Room() {
   useState([]);
  const [account, setAccount] = useState(null);
  const [now, setNow] = useState(Date.now());
- const [serverOffsetMs, setServerOffsetMs] =
-  useState(0);
  const [roomClosedNotice, setRoomClosedNotice] =
   useState(false);
  const [finalNote, setFinalNote] =
@@ -732,36 +718,11 @@ export default function Room() {
 
  useEffect(() => {
   const interval = setInterval(
-   () =>
-    setNow(Date.now() + serverOffsetMs),
+   () => setNow(Date.now()),
    1000
   );
 
   return () => clearInterval(interval);
- }, [serverOffsetMs]);
-
- useEffect(() => {
-  let active = true;
-
-  const syncServerTime = async () => {
-   const serverTime = await getServerTimeMs();
-
-   if (active) {
-    setServerOffsetMs(serverTime - Date.now());
-    setNow(serverTime);
-   }
-  };
-
-  syncServerTime();
-  const interval = setInterval(
-   syncServerTime,
-   15000
-  );
-
-  return () => {
-   active = false;
-   clearInterval(interval);
-  };
  }, []);
 
  const startGame = async () => {
@@ -796,15 +757,7 @@ export default function Room() {
   })
    .eq("room_code", code);
 
-  const serverTime = await getServerTimeMs();
   const duration = getQuestionDuration(room);
-  const startedAt = new Date(serverTime);
-  const endsAt =
-   duration === null
-    ? null
-    : new Date(
-       serverTime + duration * 1000
-      );
 
   const { data } = await supabase
    .from("rooms")
@@ -818,9 +771,9 @@ export default function Room() {
     current_question: 0,
     current_quote_id: firstQuoteId,
     question_started_at:
-     toSupabaseTime(startedAt),
-    question_ends_at:
-     endsAt ? toSupabaseTime(endsAt) : null,
+     toSupabaseTime(),
+    timer_seconds_left:
+     duration === null ? null : duration,
     trivia_active: false,
     trivia_ends_at: null,
     processing_answer: false
@@ -831,8 +784,6 @@ export default function Room() {
 
   if (data) setRoom(data);
  };
-
- const syncedNow = Date.now() + serverOffsetMs;
 
   const remainingTime =
   useMemo(() => {
@@ -851,43 +802,58 @@ export default function Room() {
    !room?.game_started ||
    room?.game_finished ||
    room?.trivia_active ||
-   !room?.question_started_at ||
    !isHost ||
    getQuestionDuration(room) === null
   ) {
    return;
   }
 
-  const endsAt =
-   parseSupabaseTime(
-    room.question_ends_at
-   ) ||
-   (
-    parseSupabaseTime(
-     room.question_started_at
-    ) +
-    getQuestionDuration(room) * 1000
-   );
+  const interval = setInterval(async () => {
+   const current =
+    Number(room.timer_seconds_left);
 
-  if (!endsAt) return;
+   if (!Number.isFinite(current)) return;
 
-  const delay = Math.max(0, endsAt - syncedNow);
+   const next = Math.max(0, current - 1);
 
-  const timeout = setTimeout(
-   () => nextQuestion(),
-   delay
-  );
+   await supabase
+    .from("rooms")
+    .update({
+     timer_seconds_left: next
+    })
+    .eq("room_code", code)
+    .eq("current_question", room.current_question);
 
-  return () => clearTimeout(timeout);
+   setRoom((currentRoom) => {
+    if (
+     !currentRoom ||
+     currentRoom.room_code !== code ||
+     currentRoom.current_question !==
+      room.current_question
+    ) {
+     return currentRoom;
+    }
+
+    return {
+     ...currentRoom,
+     timer_seconds_left: next
+    };
+   });
+
+   if (next <= 0) {
+    await nextQuestion();
+   }
+  }, 1000);
+
+  return () => clearInterval(interval);
  }, [
   room?.game_started,
   room?.game_finished,
   room?.trivia_active,
-  room?.question_started_at,
-  room?.question_ends_at,
+  room?.timer_seconds_left,
+  room?.current_question,
   room?.question_duration,
-  isHost,
-  serverOffsetMs
+  isHost
  ]);
 
  useEffect(() => {
@@ -1140,16 +1106,8 @@ export default function Room() {
   })
     .eq("room_code", code);
 
-   const serverTime = await getServerTimeMs();
    const duration =
     getQuestionDuration(lockedRoom);
-   const startedAt = new Date(serverTime);
-   const endsAt =
-    duration === null
-     ? null
-     : new Date(
-        serverTime + duration * 1000
-       );
 
    const { data } = await supabase
     .from("rooms")
@@ -1158,9 +1116,9 @@ export default function Room() {
      current_quote_id:
       nextRoomQuestion.quote_id,
      question_started_at:
-      toSupabaseTime(startedAt),
-     question_ends_at:
-      endsAt ? toSupabaseTime(endsAt) : null,
+      toSupabaseTime(),
+     timer_seconds_left:
+      duration === null ? null : duration,
      trivia_active: false,
      trivia_ends_at: null,
      processing_answer: false
