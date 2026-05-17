@@ -40,7 +40,7 @@ const plans = [
    "Host rooms for up to 20 players",
    "Choose the exact player cap before hosting",
    "Skip trivia or end questions as the host",
-   "Joiners can request Play Again and notify the host",
+   "Only hosts can replay, skip trivia, or end questions",
    "Early access to Complete the Lyrics game categories"
   ],
   plan: PLANS.PREMIUM_PLUS
@@ -211,7 +211,10 @@ export default function Payment() {
    }
 
    setPaymentMessage(
-    "Payment details received. Your premium features will be activated after review, usually within 1 day."
+    "Payment details submitted. Hang tight while we confirm your payment details."
+   );
+   window.alert(
+    "Payment details submitted. Hang tight while we confirm your payment details."
    );
    setTransactionId("");
    setPayerName("");

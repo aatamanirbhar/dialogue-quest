@@ -11,6 +11,7 @@ import { supabase } from "../lib/supabase";
 import {
  getAccount,
  isPremium,
+ isPremiumPlus,
  recordPlayHistory
 } from "../lib/account";
 import {
@@ -130,6 +131,28 @@ export default function SoloGame() {
   if (
    isMixCategory(category) &&
    !isPremium(nextAccount)
+  ) {
+   setQuotes([]);
+   setPremiumBlocked(true);
+   setLoading(false);
+   return;
+  }
+
+  if (
+   normalizeCategory(category).replace(/\s+/g, "") ===
+    "trivia" &&
+   !isPremium(nextAccount)
+  ) {
+   setQuotes([]);
+   setPremiumBlocked(true);
+   setLoading(false);
+   return;
+  }
+
+  if (
+   normalizeCategory(category).replace(/\s+/g, "") ===
+    "premiumplus" &&
+   !isPremiumPlus(nextAccount)
   ) {
    setQuotes([]);
    setPremiumBlocked(true);

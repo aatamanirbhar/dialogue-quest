@@ -157,9 +157,15 @@ export async function refreshAccount() {
  const { data: refreshedUser } =
   await supabase.auth.getUser();
 
- return ensureProfile(
+ const account = await ensureProfile(
   refreshedUser?.user || user
  );
+
+ window.dispatchEvent(
+  new Event("dq-account-change")
+ );
+
+ return account;
 }
 
 export async function createAccount({

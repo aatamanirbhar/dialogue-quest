@@ -192,10 +192,21 @@ module.exports = async (request, response) => {
    "",
    "Approve in Supabase by setting plan/payment_status to paid."
   ].join("\n");
-  const telegram =
-   await sendTelegramNotification(
+  let telegram = {
+   sent: false
+  };
+
+  try {
+   telegram = await sendTelegramNotification(
     notificationText
    );
+  } catch (telegramError) {
+   console.error(telegramError);
+   telegram = {
+    sent: false,
+    reason: telegramError.message
+   };
+  }
 
   sendJson(response, 200, {
    ok: true,

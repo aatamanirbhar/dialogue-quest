@@ -156,6 +156,20 @@ const categoryMatches = (
  );
 };
 
+const isLyricsCategory = (value) =>
+ normalizeCategory(value) === "lyrics";
+
+const mapLyricsQuestionToQuote = (question) => ({
+ ...question,
+ dialogue: question.prompt,
+ answer: question.answer,
+ trivia_fact:
+  question.trivia_fact ||
+  `Complete the lyrics answer: ${question.answer}`,
+ poster_url: question.poster_url || null,
+ source_table: "lyrics_questions"
+});
+
 const getWinnerText = (players) => {
  if (!players?.length) return "No Winner";
 
@@ -215,8 +229,7 @@ export default function Room() {
  const isHost = room?.host_id === playerId;
  const premiumPlusHost =
   isHost && isPremiumPlus(account);
- const canUseQuestionControls =
-  players.length <= 2 || premiumPlusHost;
+ const canUseQuestionControls = isHost;
  const premiumMixEnabled =
   isPremium(account) &&
   isMixCategory(room?.category);
@@ -308,6 +321,25 @@ export default function Room() {
   }
  };
 
+ const finishWithRemainingWinner = async (
+  remainingPlayers
+ ) => {
+  const winner =
+   remainingPlayers?.[0]?.username ||
+   "No Winner";
+
+  await supabase
+   .from("rooms")
+   .update({
+    game_finished: true,
+    winner,
+    trivia_active: false,
+    trivia_ends_at: null,
+    processing_answer: false
+   })
+   .eq("room_code", code);
+ };
+
  const fetchPlayers = async () => {
   const { data } = await supabase
    .from("room_players")
@@ -322,6 +354,18 @@ export default function Room() {
    previousPlayersRef.current;
 
   if (previousPlayers.length) {
+   previousPlayers.forEach((previous) => {
+    const stillHere = nextPlayers.some(
+     (player) => player.id === previous.id
+    );
+
+    if (!stillHere) {
+     pushActivityNotice(
+      `${previous.username} chickened out.`
+     );
+    }
+   });
+
   nextPlayers.forEach((player) => {
     const previous = previousPlayers.find(
      (item) => item.id === player.id
@@ -403,6 +447,22 @@ export default function Room() {
    return;
   }
 
+  if (isLyricsCategory(room.category)) {
+   const { data: lyricData } =
+    await supabase
+     .from("lyrics_questions")
+     .select("*")
+     .eq("id", roomQuestion.quote_id)
+     .maybeSingle();
+
+   setQuote(
+    lyricData
+     ? mapLyricsQuestionToQuote(lyricData)
+     : null
+   );
+   return;
+  }
+
   const { data: quoteData } =
    await supabase
     .from("quotes")
@@ -414,6 +474,56 @@ export default function Room() {
  };
 
  const generateQuestions = async (sourceRoom) => {
+ if (isLyricsCategory(sourceRoom.category)) {
+  const { data: lyricsQuestions } =
+   await supabase
+    .from("lyrics_questions")
+    .select("id, category")
+    .eq("is_active", true);
+
+  const matchingLyrics =
+   lyricsQuestions || [];
+
+  if (!matchingLyrics.length) return null;
+
+  const targetCount =
+   sourceRoom.endless_mode
+    ? Math.max(
+       matchingLyrics.length,
+       ENDLESS_BATCH_SIZE
+      )
+    : Math.max(
+       1,
+       Number(sourceRoom.total_rounds) || 1
+      );
+
+  const selected = [];
+
+  while (selected.length < targetCount) {
+   const shuffled =
+    [...matchingLyrics].sort(
+     () => 0.5 - Math.random()
+    );
+
+   selected.push(...shuffled);
+  }
+
+  const inserts =
+   selected
+    .slice(0, targetCount)
+    .map((questionItem, index) => ({
+     room_code: code,
+     quote_id: questionItem.id,
+     question_order: index
+    }));
+
+  await supabase
+   .from("room_questions")
+   .insert(inserts);
+
+  return inserts[0]?.quote_id || null;
+ }
+
  const { data: quotes } =
    await supabase
     .from("quotes")
@@ -1028,44 +1138,6 @@ export default function Room() {
   setMessage("");
  };
 
- const requestPlayAgain = async () => {
-  if (!room || !account || !isPremiumPlus(account)) {
-   return;
-  }
-
-  const requestName =
-   account.name || me?.username || account.email;
-  const requestId = account.id || playerId;
-  const currentIds =
-   room.play_again_requesters || [];
-  const currentNames =
-   room.play_again_requester_names || [];
-
-  if (!currentIds.includes(requestId)) {
-   const nextNames = [
-    ...currentNames,
-    requestName
-   ];
-
-   await supabase
-    .from("rooms")
-    .update({
-     play_again_requesters: [
-      ...currentIds,
-      requestId
-     ],
-     play_again_requester_names: nextNames,
-     play_again_requested_at:
-      toSupabaseTime()
-    })
-    .eq("room_code", code);
-
-   setPlayAgainNotice(
-    "The host will be notified that you want to play again."
-   );
-  }
- };
-
  const leaveRoom = async () => {
   if (isHost) {
    await deleteRoom();
@@ -1082,11 +1154,19 @@ export default function Room() {
   const { data: remainingPlayers } =
    await supabase
     .from("room_players")
-    .select("id")
+    .select("*")
     .eq("room_code", code);
 
   if (!remainingPlayers?.length) {
    await deleteRoom();
+  } else if (
+   remainingPlayers.length === 1 &&
+   room?.game_started &&
+   !room?.game_finished
+  ) {
+   await finishWithRemainingWinner(
+    remainingPlayers
+   );
   }
 
   navigate("/multiplayer");
@@ -1258,15 +1338,6 @@ export default function Room() {
         </>
        )}
 
-       {!isHost && isPremiumPlus(account) && (
-        <button
-         onClick={requestPlayAgain}
-         className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
-        >
-         Play Again
-        </button>
-       )}
-
        <button
         onClick={leaveRoom}
         className="bg-zinc-800 px-6 py-3 rounded-lg font-bold"
@@ -1339,10 +1410,12 @@ export default function Room() {
       Room {code}
      </h1>
 
-     <p className="text-zinc-400 capitalize">
+       <p className="text-zinc-400 capitalize">
       {room.category === "mix"
        ? "Premium Mix"
-       : room.category}{" "}
+       : room.category === "lyrics"
+        ? "Complete the Lyrics"
+        : room.category}{" "}
       {!room.endless_mode &&
        `- ${room.total_rounds} rounds`}
      </p>
@@ -1447,7 +1520,9 @@ export default function Room() {
         </div>
 
         <p className="text-2xl sm:text-4xl leading-relaxed mb-8 sm:mb-10">
-         "{quote.dialogue}"
+         {isLyricsCategory(room.category)
+          ? quote.dialogue
+          : `"${quote.dialogue}"`}
         </p>
 
         <input
@@ -1460,7 +1535,11 @@ export default function Room() {
            submitAnswer();
           }
          }}
-         placeholder="Guess movie or TV series"
+         placeholder={
+          isLyricsCategory(room.category)
+           ? "Type the missing lyrics"
+           : "Guess movie or TV series"
+         }
          disabled={me?.answered_current}
          className="w-full bg-zinc-800 border border-zinc-700 p-5 rounded-lg mb-5 disabled:opacity-60"
         />

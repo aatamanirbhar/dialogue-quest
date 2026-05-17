@@ -16,6 +16,7 @@ import {
  getPlanBenefits,
  getPlanLabel,
  getPlayHistory,
+ refreshAccount,
  getTrialCreditsLeft,
  isPremium,
  isPremiumPlus,
@@ -47,6 +48,33 @@ const mixCategoryOptions = [
  {
   value: "tvshows",
   label: "TV Shows"
+ },
+  {
+  value: "anime",
+  label: "Anime"
+ },
+ {
+  value: "trivia",
+  label: "Trivia"
+ }
+];
+
+const standardCategoryOptions = [
+ {
+  value: "hollywood",
+  label: "Hollywood"
+ },
+ {
+  value: "bollywood",
+  label: "Bollywood"
+ },
+ {
+  value: "tvshows",
+  label: "TV Series"
+ },
+ {
+  value: "mix",
+  label: "Mixed"
  },
  {
   value: "anime",
@@ -196,6 +224,78 @@ export default function MultiplayerLobby() {
    }
   }
  }, [searchParams]);
+
+ useEffect(() => {
+  if (searchParams.get("auth") !== "confirmed") {
+   return;
+  }
+
+  let active = true;
+
+  const confirmEmail = async () => {
+   try {
+    const nextAccount =
+     await refreshAccount();
+
+    if (!active) return;
+
+    if (nextAccount) {
+     setAccount(nextAccount);
+    }
+
+    setGateNotice({
+     eyebrow: "Email confirmed",
+     title: "Congratulations, your email is confirmed.",
+     body: "Enjoy. Room creation is unlocked in this browser too.",
+     primaryLabel: "Continue",
+     onPrimary: () => setGateNotice(null)
+    });
+   } catch (error) {
+    if (!active) return;
+    setGateNotice({
+     eyebrow: "Email confirmation",
+     title: "We could not refresh your confirmation yet.",
+     body: error.message,
+     primaryLabel: "Close",
+     onPrimary: () => setGateNotice(null)
+    });
+   }
+  };
+
+  confirmEmail();
+
+  return () => {
+   active = false;
+  };
+ }, [searchParams]);
+
+ useEffect(() => {
+  if (!account || account.emailConfirmed) {
+   return;
+  }
+
+  const interval = setInterval(async () => {
+   try {
+    const nextAccount =
+     await refreshAccount();
+
+    if (nextAccount?.emailConfirmed) {
+     setAccount(nextAccount);
+     setGateNotice({
+      eyebrow: "Email confirmed",
+      title: "Congratulations, your email is confirmed.",
+      body: "Enjoy. You can create rooms now.",
+      primaryLabel: "Continue",
+      onPrimary: () => setGateNotice(null)
+     });
+    }
+   } catch (error) {
+    console.error(error);
+   }
+  }, 10000);
+
+  return () => clearInterval(interval);
+ }, [account?.id, account?.emailConfirmed]);
 
  useEffect(() => {
   let active = true;
@@ -539,6 +639,9 @@ export default function MultiplayerLobby() {
    } else {
     setShowResetPrompt(false);
     setAuthMessage(message);
+    if (/invalid login credentials/i.test(message)) {
+     setShowResetPrompt(true);
+    }
    }
   } finally {
    setAuthSubmitting(false);
@@ -588,6 +691,14 @@ export default function MultiplayerLobby() {
     !hasPremium
    ) {
     showMixPremiumGate();
+    return;
+   }
+
+  if (
+   selectedCategory === "lyrics" &&
+   !hasPremiumPlus
+  ) {
+    showLyricsPremiumPlusGate();
     return;
    }
 
@@ -686,6 +797,14 @@ export default function MultiplayerLobby() {
    );
    return;
   }
+
+   if (
+    selectedCategory === "trivia" &&
+    !hasPremium
+   ) {
+    showMixPremiumGate();
+    return;
+   }
 
   if (!username) {
    alert("Enter username");
@@ -850,10 +969,17 @@ export default function MultiplayerLobby() {
        </div>
       )}
 
-      {showResetPrompt && (
+      {(showResetPrompt || authMode === "signin") && (
        <button
         type="button"
         onClick={async () => {
+         if (!accountEmail.trim()) {
+          setAuthMessage(
+           "Enter your email first."
+          );
+          return;
+         }
+
          try {
           await requestPasswordReset(
            accountEmail
@@ -1222,27 +1348,43 @@ export default function MultiplayerLobby() {
      className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
     />
 
-    <select
-     value={selectedCategory}
-     onChange={(e) => {
-      if (
-       e.target.value === "mix" &&
-       !hasPremium
-      ) {
-       showMixPremiumGate();
-       return;
-      }
+    <div className="grid gap-3 mb-5">
+     <p className="text-sm uppercase tracking-[0.2em] text-zinc-500">
+      Category
+     </p>
+     <div className="grid sm:grid-cols-2 gap-3">
+      {standardCategoryOptions.map((option) => {
+       const active =
+        selectedCategory === option.value;
 
-      setSelectedCategory(e.target.value);
-     }}
-     className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
-    >
-      <option value="hollywood">Hollywood</option>
-      <option value="bollywood">Bollywood</option>
-      <option value="tvshows">TV Series</option>
-      <option value="mix">Mixed</option>
-      <option value="anime">Anime</option>
-    </select>
+       return (
+        <button
+         key={option.value}
+         type="button"
+         onClick={() => {
+          if (
+           (option.value === "mix" ||
+            option.value === "trivia") &&
+           !hasPremium
+          ) {
+           showMixPremiumGate();
+           return;
+          }
+
+          setSelectedCategory(option.value);
+         }}
+         className={`border p-4 rounded-lg font-bold text-left ${
+          active
+           ? "bg-yellow-400 text-black border-yellow-400"
+           : "bg-zinc-800 text-white border-zinc-700"
+         }`}
+        >
+         {option.label}
+        </button>
+       );
+      })}
+     </div>
+    </div>
 
     {selectedCategory === "mix" && (
      <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-100 rounded-lg p-4 mb-5">
@@ -1304,12 +1446,14 @@ export default function MultiplayerLobby() {
        showLyricsPremiumPlusGate();
        return;
       }
-       navigate("/lyrics");
+       setSelectedCategory("lyrics");
       }}
       className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
      >
       {hasPremiumPlus
-       ? "Open Lyrics Multiplayer"
+       ? selectedCategory === "lyrics"
+        ? "Lyrics Selected"
+        : "Select Lyrics Multiplayer"
        : "Unlock Lyrics Multiplayer"}
      </button>
     </div>

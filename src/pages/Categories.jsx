@@ -23,7 +23,8 @@ const categories = [
  "tvshows",
  "mix",
  "bollywood",
- "anime"
+ "anime",
+ "trivia"
 ];
 
 const mixCategoryOptions = [
@@ -48,6 +49,7 @@ const mixCategoryOptions = [
 const getLabel = (category) => {
  if (category === "tvshows") return "TV Shows";
  if (category === "mix") return "Mix";
+ if (category === "trivia") return "Trivia";
  return category;
 };
 
@@ -199,7 +201,8 @@ export default function Categories() {
 
  const playSolo = (category) => {
   if (
-   category === "mix" &&
+   (category === "mix" ||
+    category === "trivia") &&
    !hasPremium
   ) {
    openPremiumMixNotice();
@@ -217,7 +220,8 @@ export default function Categories() {
 
  const playMultiplayer = (category) => {
   if (
-   category === "mix" &&
+   (category === "mix" ||
+    category === "trivia") &&
    !hasPremium
   ) {
    openPremiumMixNotice();
@@ -385,46 +389,11 @@ export default function Categories() {
     </div>
 
     <div className="grid md:grid-cols-2 gap-6">
-     <div className="bg-zinc-900 border border-yellow-500/40 rounded-2xl p-6 sm:p-8 md:col-span-2">
-      <div className="flex items-start justify-between gap-4 mb-4">
-       <div>
-        <h2 className="text-3xl font-bold">
-         Complete the Lyrics
-        </h2>
-        <p className="text-zinc-400 mt-3">
-         {hasPremiumPlus
-          ? "Premium Plus early access is unlocked. Jump into the lyrics section."
-          : "Premium Plus early access. Unlock this section to play the lyrics game in solo and multiplayer."}
-        </p>
-       </div>
-       <span className={`text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border ${
-        hasPremiumPlus
-         ? "text-cyan-300 border-cyan-400/40 bg-cyan-400/10"
-         : "text-yellow-300 border-yellow-500/40"
-       }`}>
-        {hasPremiumPlus ? "Unlocked" : "Premium Plus"}
-       </span>
-      </div>
-
-      <div className="flex gap-4 flex-wrap">
-       <button
-        onClick={() => {
-         if (!hasPremiumPlus) {
-          openLyricsGate();
-          return;
-         }
-         navigate("/lyrics");
-        }}
-        className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
-       >
-        {hasPremiumPlus ? "Open Lyrics Section" : "Unlock Premium Plus"}
-       </button>
-      </div>
-     </div>
-
      {categories.map((item) => {
       const locked =
-       item === "mix" && !hasPremium;
+       (item === "mix" ||
+        item === "trivia") &&
+       !hasPremium;
 
       return (
        <div
@@ -445,6 +414,13 @@ export default function Categories() {
             {locked
              ? "Premium unlock: choose the categories you want in one run."
              : "Unlocked: choose exactly which categories can appear."}
+           </p>
+          )}
+          {item === "trivia" && (
+           <p className="text-zinc-400 mt-3">
+            {locked
+             ? "Premium unlock: poster-backed trivia questions in solo and Premium Plus accounts."
+             : "Unlocked: poster-backed trivia questions are ready to play."}
            </p>
           )}
          </div>
@@ -505,10 +481,60 @@ export default function Categories() {
          >
           Multiplayer
          </button>
-        </div>
        </div>
+      </div>
       );
      })}
+
+     <div className="bg-zinc-900 border border-yellow-500/40 rounded-2xl p-6 sm:p-8 md:col-span-2">
+      <div className="flex items-start justify-between gap-4 mb-4">
+       <div>
+        <h2 className="text-3xl font-bold">
+         Complete the Lyrics
+        </h2>
+        <p className="text-zinc-400 mt-3">
+         {hasPremiumPlus
+          ? "Premium Plus early access is unlocked. Play solo or host a lyrics room."
+          : "Premium Plus early access. Unlock this section to play the lyrics game in solo and multiplayer."}
+        </p>
+       </div>
+       <span className={`text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border ${
+        hasPremiumPlus
+         ? "text-cyan-300 border-cyan-400/40 bg-cyan-400/10"
+         : "text-yellow-300 border-yellow-500/40"
+       }`}>
+        {hasPremiumPlus ? "Unlocked" : "Premium Plus"}
+       </span>
+      </div>
+
+      <div className="flex gap-4 flex-wrap">
+       <button
+        onClick={() => {
+         if (!hasPremiumPlus) {
+          openLyricsGate();
+          return;
+         }
+         navigate("/lyrics");
+        }}
+        className="bg-white text-black px-5 py-3 rounded-lg font-bold"
+       >
+        {hasPremiumPlus ? "Solo" : "Unlock Premium Plus"}
+       </button>
+
+       <button
+        onClick={() => {
+         if (!hasPremiumPlus) {
+          openLyricsGate();
+          return;
+         }
+         navigate("/multiplayer?category=lyrics");
+        }}
+        className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
+       >
+        Multiplayer
+       </button>
+      </div>
+     </div>
     </div>
   </div>
 
