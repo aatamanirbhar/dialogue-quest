@@ -1,6 +1,5 @@
 import React, {
  useEffect,
- useRef,
  useState
 } from "react";
 import {
@@ -177,7 +176,6 @@ export default function MultiplayerLobby() {
   useState(false);
  const [playHistory, setPlayHistory] =
   useState([]);
- const lastEmailConfirmedRef = useRef(null);
 
  useEffect(() => {
   window.scrollTo({
@@ -291,65 +289,6 @@ export default function MultiplayerLobby() {
    "Enter a new password for your account."
   );
  }, [searchParams]);
-
- useEffect(() => {
-  if (!account || account.emailConfirmed) {
-   return;
-  }
-
-  const interval = setInterval(async () => {
-   try {
-    const nextAccount =
-     await refreshAccount();
-
-    if (nextAccount?.emailConfirmed) {
-     setAccount(nextAccount);
-     setGateNotice({
-      eyebrow: "Email confirmed",
-      title: "Congratulations, your email is confirmed.",
-      body: "Enjoy. You can create rooms now.",
-      primaryLabel: "Continue",
-      onPrimary: () => setGateNotice(null)
-     });
-    }
-   } catch (error) {
-    console.error(error);
-   }
-  }, 10000);
-
-  return () => clearInterval(interval);
- }, [account?.id, account?.emailConfirmed]);
-
- useEffect(() => {
-  const wasConfirmed =
-   lastEmailConfirmedRef.current;
-  const isConfirmed =
-   Boolean(account?.emailConfirmed);
-
-  lastEmailConfirmedRef.current =
-   isConfirmed;
-
-  if (
-   !account ||
-   !isConfirmed ||
-   wasConfirmed !== false ||
-   searchParams.get("auth") === "confirmed"
-  ) {
-   return;
-  }
-
-  setGateNotice({
-   eyebrow: "Email confirmed",
-   title: "Congratulations, your email is confirmed.",
-   body: "Enjoy. Room creation is unlocked in this browser too.",
-   primaryLabel: "Continue",
-   onPrimary: () => setGateNotice(null)
-  });
- }, [
-  account?.id,
-  account?.emailConfirmed,
-  searchParams
- ]);
 
  useEffect(() => {
   let active = true;

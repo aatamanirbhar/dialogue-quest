@@ -100,7 +100,7 @@ const getClockRemainingTime = (
 
  const startedAt =
   parseSupabaseTime(
-   room.question_started_at
+   room?.question_started_at
   );
 
  if (!startedAt) {
