@@ -72,20 +72,14 @@ const getQuestionDuration = (room) => {
  return duration || DEFAULT_QUESTION_DURATION;
 };
 
-const getRemainingTime = (room, currentTime) => {
- const duration = getQuestionDuration(room);
+const getRemainingTime = (
+ room,
+ currentTime
+) => {
+ const duration =
+  getQuestionDuration(room);
 
  if (!duration) return null;
-
- if (
-  room?.timer_seconds_left !== undefined &&
-  room?.timer_seconds_left !== null
- ) {
-  return Math.max(
-   0,
-   Number(room.timer_seconds_left) || 0
-  );
- }
 
  if (!room?.question_started_at) {
   return duration;
@@ -96,29 +90,34 @@ const getRemainingTime = (room, currentTime) => {
    room.question_started_at
   );
 
- if (!startedAt) return duration;
+ if (!startedAt) {
+  return duration;
+ }
 
- const elapsed =
-  (currentTime - startedAt) / 1000;
+ const endTime =
+  startedAt + duration * 1000;
 
  return Math.max(
   0,
-  Math.ceil(duration - elapsed)
+  Math.ceil(
+   (endTime - currentTime) / 1000
+  )
  );
 };
 
-const hasQuestionExpired = (room) => {
- if (
-  room?.timer_seconds_left !== undefined &&
-  room?.timer_seconds_left !== null
- ) {
-  return Number(room.timer_seconds_left) <= 0;
- }
-
+const hasQuestionExpired = (
+ room
+) => {
  const remaining =
-  getRemainingTime(room, Date.now());
+  getRemainingTime(
+   room,
+   Date.now()
+  );
 
- return remaining !== null && remaining <= 0;
+ return (
+  remaining !== null &&
+  remaining <= 0
+ );
 };
 
 const normalizeAnswer = (text) => {
@@ -797,64 +796,28 @@ export default function Room() {
    now
   ]);
 
- useEffect(() => {
-  if (
-   !room?.game_started ||
-   room?.game_finished ||
-   room?.trivia_active ||
-   !isHost ||
-   getQuestionDuration(room) === null
-  ) {
-   return;
-  }
+useEffect(() => {
+ if (
+  !room?.game_started ||
+  room?.game_finished ||
+  room?.trivia_active ||
+  !isHost
+ ) {
+  return;
+ }
 
-  const interval = setInterval(async () => {
-   const current =
-    Number(room.timer_seconds_left);
-
-   if (!Number.isFinite(current)) return;
-
-   const next = Math.max(0, current - 1);
-
-   await supabase
-    .from("rooms")
-    .update({
-     timer_seconds_left: next
-    })
-    .eq("room_code", code)
-    .eq("current_question", room.current_question);
-
-   setRoom((currentRoom) => {
-    if (
-     !currentRoom ||
-     currentRoom.room_code !== code ||
-     currentRoom.current_question !==
-      room.current_question
-    ) {
-     return currentRoom;
-    }
-
-    return {
-     ...currentRoom,
-     timer_seconds_left: next
-    };
-   });
-
-   if (next <= 0) {
-    await nextQuestion();
-   }
-  }, 1000);
-
-  return () => clearInterval(interval);
- }, [
-  room?.game_started,
-  room?.game_finished,
-  room?.trivia_active,
-  room?.timer_seconds_left,
-  room?.current_question,
-  room?.question_duration,
-  isHost
- ]);
+ if (
+  hasQuestionExpired(room)
+ ) {
+  nextQuestion();
+ }
+}, [
+ remainingTime,
+ room?.game_started,
+ room?.game_finished,
+ room?.trivia_active,
+ isHost
+]);
 
  useEffect(() => {
   if (
