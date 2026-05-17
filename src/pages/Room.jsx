@@ -97,13 +97,13 @@ const getRemainingTime = (
  const endTime =
   startedAt + duration * 1000;
 
- return Math.max(
-  0,
-  Math.ceil(
-   (endTime - currentTime) / 1000
-  )
- );
-};
+return Math.max(
+ 0,
+ Math.floor(
+   (endTime - currentTime + 999) /
+   1000
+ )
+);
 
 const hasQuestionExpired = (
  room
@@ -715,14 +715,17 @@ export default function Room() {
   };
  }, []);
 
- useEffect(() => {
-  const interval = setInterval(
-   () => setNow(Date.now()),
-   1000
-  );
+useEffect(() => {
+ const interval = setInterval(
+  () => {
+   setNow(Date.now());
+  },
+  100
+ );
 
-  return () => clearInterval(interval);
- }, []);
+ return () =>
+  clearInterval(interval);
+}, []);
 
  const startGame = async () => {
   if (!room || !isHost) return;
