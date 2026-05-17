@@ -1301,17 +1301,10 @@ export default function MultiplayerLobby() {
       type="button"
       onClick={() => {
        if (!hasPremiumPlus) {
-        showLyricsPremiumPlusGate();
-        return;
-       }
-       setGateNotice({
-        eyebrow: "Coming next",
-        title: "Lyrics multiplayer is unlocked.",
-        body:
-         "Premium Plus access is confirmed. The lyrics game section can be opened from the categories page when its route is added.",
-        primaryLabel: "Close",
-        onPrimary: () => setGateNotice(null)
-       });
+       showLyricsPremiumPlusGate();
+       return;
+      }
+       navigate("/lyrics");
       }}
       className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
      >
