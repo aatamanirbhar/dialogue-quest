@@ -92,8 +92,7 @@ const getRemainingTime = (
 
  if (!startedAt) {
   return duration;
- }
-
+//fgsdfbdrfbhdrfhntdrf
  const endTime =
   startedAt + duration * 1000;
 
