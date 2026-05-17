@@ -72,7 +72,7 @@ const getQuestionDuration = (room) => {
  return duration || DEFAULT_QUESTION_DURATION;
 };
 
-const getClockRemainingTime = (
+const getRemainingTime = (
  room,
  currentTime
 ) => {
@@ -80,23 +80,6 @@ const getClockRemainingTime = (
   getQuestionDuration(room);
 
  if (!duration) return null;
-
- if (room?.question_ends_at) {
-  const endsAt =
-   parseSupabaseTime(
-    room.question_ends_at
-   );
-
-  if (endsAt) {
-   return Math.max(
-    0,
-    Math.floor(
-     (endsAt - currentTime + 999) /
-      1000
-    )
-   );
-  }
- }
 
  const startedAt =
   parseSupabaseTime(
@@ -107,37 +90,12 @@ const getClockRemainingTime = (
   return duration;
  }
 
- const endTime =
-  startedAt + duration * 1000;
+ const elapsed =
+  (currentTime - startedAt) / 1000;
 
  return Math.max(
   0,
-  Math.floor(
-   (endTime - currentTime + 999) / 1000
-  )
- );
-};
-
-const getDisplayRemainingTime = (
- room,
- currentTime
-) => {
- const duration =
-  getQuestionDuration(room);
-
- if (!duration) return null;
-
- const sharedTime = Number(
-  room?.timer_seconds_left
- );
-
- if (Number.isFinite(sharedTime)) {
-  return Math.max(0, sharedTime);
- }
-
- return getClockRemainingTime(
-  room,
-  currentTime
+  Math.ceil(duration - elapsed)
  );
 };
 
@@ -146,7 +104,7 @@ const hasQuestionExpired = (
  currentTime = Date.now()
 ) => {
  const remaining =
-  getClockRemainingTime(
+  getRemainingTime(
    room,
    currentTime
   );
@@ -294,7 +252,6 @@ export default function Room() {
   useState([]);
 
  const advancingRef = useRef(false);
- const lastTimerSyncRef = useRef("");
  const previousPlayersRef = useRef([]);
  const recordedFinishedRoomRef =
   useRef(null);
@@ -768,6 +725,7 @@ useEffect(() => {
  const startGame = async () => {
   if (!room || !isHost) return;
 
+  const startedAt = new Date();
   setNotice("");
 
   await supabase
@@ -797,16 +755,6 @@ useEffect(() => {
   })
    .eq("room_code", code);
 
-  const duration = getQuestionDuration(room);
-  const startedAt = new Date();
-  const questionEndsAt =
-   duration === null
-    ? null
-    : new Date(
-       startedAt.getTime() +
-        duration * 1000
-      );
-
   const { data } = await supabase
    .from("rooms")
    .update({
@@ -820,14 +768,8 @@ useEffect(() => {
      current_quote_id: firstQuoteId,
      question_started_at:
       toSupabaseTime(startedAt),
-     question_ends_at:
-      questionEndsAt
-       ? toSupabaseTime(questionEndsAt)
-       : null,
-     timer_seconds_left:
-     duration === null ? null : duration,
-    trivia_active: false,
-    trivia_ends_at: null,
+     trivia_active: false,
+     trivia_ends_at: null,
     processing_answer: false
    })
    .eq("room_code", code)
@@ -837,72 +779,56 @@ useEffect(() => {
   if (data) setRoom(data);
  };
 
-  const clockRemainingTime =
+  const remainingTime =
   useMemo(() => {
-   return getClockRemainingTime(
+   return getRemainingTime(
     room,
     now
    );
   }, [
    room?.question_started_at,
-   room?.question_ends_at,
    room?.question_duration,
    now
   ]);
-
-  const remainingTime =
-   isHost
-    ? clockRemainingTime
-    : getDisplayRemainingTime(
-       room,
-       now
-      );
 
 useEffect(() => {
  if (
   !room?.game_started ||
   room?.game_finished ||
   room?.trivia_active ||
+  !room?.question_started_at ||
+  getQuestionDuration(room) === null ||
   !isHost
  ) {
   return;
  }
 
- if (clockRemainingTime !== null) {
-  const syncKey = `${room.current_question}-${clockRemainingTime}`;
+ const durationMs =
+  getQuestionDuration(room) * 1000;
+ const startedAt =
+  parseSupabaseTime(
+   room.question_started_at
+  );
 
-  if (
-   syncKey !== lastTimerSyncRef.current &&
-   Number(room.timer_seconds_left) !==
-    clockRemainingTime
-  ) {
-   lastTimerSyncRef.current = syncKey;
-   supabase
-    .from("rooms")
-    .update({
-     timer_seconds_left: clockRemainingTime
-    })
-    .eq("room_code", code)
-    .eq(
-     "current_question",
-     room.current_question
-    )
-    .then(({ error }) => {
-     if (error) console.error(error);
-    });
-  }
- }
+ if (!startedAt) return;
 
- if (
-  hasQuestionExpired(room)
- ) {
-  nextQuestion();
- }
+ const delay = Math.max(
+  0,
+  startedAt + durationMs - Date.now()
+ );
+
+ const timeout = setTimeout(
+  () => nextQuestion(),
+  delay
+ );
+
+ return () => clearTimeout(timeout);
 }, [
- clockRemainingTime,
  room?.game_started,
  room?.game_finished,
  room?.trivia_active,
+ room?.question_started_at,
+ room?.question_duration,
  isHost
 ]);
 
@@ -1156,31 +1082,16 @@ useEffect(() => {
   })
     .eq("room_code", code);
 
-   const duration =
-    getQuestionDuration(lockedRoom);
    const startedAt = new Date();
-   const questionEndsAt =
-    duration === null
-     ? null
-     : new Date(
-        startedAt.getTime() +
-         duration * 1000
-       );
 
    const { data } = await supabase
     .from("rooms")
     .update({
      current_question: nextIndex,
      current_quote_id:
-      nextRoomQuestion.quote_id,
+     nextRoomQuestion.quote_id,
      question_started_at:
       toSupabaseTime(startedAt),
-     question_ends_at:
-      questionEndsAt
-       ? toSupabaseTime(questionEndsAt)
-       : null,
-     timer_seconds_left:
-      duration === null ? null : duration,
      trivia_active: false,
      trivia_ends_at: null,
      processing_answer: false
@@ -1242,7 +1153,7 @@ useEffect(() => {
   const duration =
    getQuestionDuration(room);
   const remaining =
-   getClockRemainingTime(room, Date.now());
+   getRemainingTime(room, Date.now());
   const fastBonus =
    isCorrect &&
    duration &&
