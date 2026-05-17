@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 const TRIAL_LIMIT = 2;
 const HISTORY_TABLE = "match_history";
 const LEGACY_HISTORY_TABLE = "play_history";
+const ACCOUNT_SYNC_KEY = "dq-account-sync";
 
 export const PLANS = {
  FREE: "free",
@@ -58,6 +59,24 @@ const defaultProfile = {
  avatarUrl: ""
 };
 
+const notifyAccountChange = (type = "account") => {
+ window.dispatchEvent(
+  new Event("dq-account-change")
+ );
+
+ try {
+  window.localStorage.setItem(
+   ACCOUNT_SYNC_KEY,
+   JSON.stringify({
+    type,
+    at: Date.now()
+   })
+  );
+ } catch (error) {
+  console.error(error);
+ }
+};
+
 const mapProfile = (profile, user) => ({
  ...defaultProfile,
  id: user?.id || profile?.id,
@@ -102,6 +121,20 @@ export async function getAccount() {
  if (!user) return null;
 
  return ensureProfile(user);
+}
+
+async function getFreshAccount() {
+ const session = await getSession();
+ const user = session?.user;
+
+ if (!user) return null;
+
+ const { data: refreshedUser } =
+  await supabase.auth.getUser();
+
+ return ensureProfile(
+  refreshedUser?.user || user
+ );
 }
 
 export async function ensureProfile(user) {
@@ -149,21 +182,9 @@ export async function ensureProfile(user) {
 }
 
 export async function refreshAccount() {
- const session = await getSession();
- const user = session?.user;
+ const account = await getFreshAccount();
 
- if (!user) return null;
-
- const { data: refreshedUser } =
-  await supabase.auth.getUser();
-
- const account = await ensureProfile(
-  refreshedUser?.user || user
- );
-
- window.dispatchEvent(
-  new Event("dq-account-change")
- );
+ notifyAccountChange("refresh");
 
  return account;
 }
@@ -290,9 +311,7 @@ export async function updateProfile({
   });
  }
 
- window.dispatchEvent(
-  new Event("dq-account-change")
- );
+ notifyAccountChange("profile");
 
  return mapProfile(data, user);
 }
@@ -344,6 +363,8 @@ export async function updatePassword(password) {
  });
 
  if (error) throw error;
+
+ notifyAccountChange("password");
 }
 
 export async function requestPasswordReset(email) {
@@ -352,7 +373,7 @@ export async function requestPasswordReset(email) {
   cleanEmail,
   {
    redirectTo:
-    `${window.location.origin}/multiplayer?auth=signin`
+    `${window.location.origin}/multiplayer?auth=recovery`
   }
  );
 
@@ -361,12 +382,43 @@ export async function requestPasswordReset(email) {
 
 export async function signOutAccount() {
  await supabase.auth.signOut();
- window.dispatchEvent(
-  new Event("dq-account-change")
- );
+ notifyAccountChange("signout");
 }
 
 export function onAccountChange(callback) {
+ let active = true;
+
+ const refresh = async () => {
+  try {
+   callback(await getFreshAccount());
+  } catch (error) {
+   console.error(error);
+   callback(null);
+  }
+ };
+
+ const handleLocalChange = () => {
+  if (active) refresh();
+ };
+
+ const handleStorage = (event) => {
+  if (
+   active &&
+   event.key === ACCOUNT_SYNC_KEY
+  ) {
+   refresh();
+  }
+ };
+
+ window.addEventListener(
+  "dq-account-change",
+  handleLocalChange
+ );
+ window.addEventListener(
+  "storage",
+  handleStorage
+ );
+
  const {
   data: { subscription }
  } = supabase.auth.onAuthStateChange(
@@ -389,7 +441,18 @@ export function onAccountChange(callback) {
   }
  );
 
- return () => subscription.unsubscribe();
+ return () => {
+  active = false;
+  window.removeEventListener(
+   "dq-account-change",
+   handleLocalChange
+  );
+  window.removeEventListener(
+   "storage",
+   handleStorage
+  );
+  subscription.unsubscribe();
+ };
 }
 
 export async function upgradeAccount(plan) {
@@ -445,9 +508,7 @@ export async function upgradeAccount(plan) {
 
  if (error) throw error;
 
- window.dispatchEvent(
-  new Event("dq-account-change")
- );
+ notifyAccountChange("upgrade");
 
   return mapProfile(data, user);
 }

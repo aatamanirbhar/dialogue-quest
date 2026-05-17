@@ -1,5 +1,6 @@
 import React, {
  useEffect,
+ useRef,
  useState
 } from "react";
 import {
@@ -132,6 +133,14 @@ export default function MultiplayerLobby() {
   useState("");
  const [accountPassword, setAccountPassword] =
   useState("");
+ const [recoveryPassword, setRecoveryPassword] =
+  useState("");
+ const [recoveryPasswordConfirm, setRecoveryPasswordConfirm] =
+  useState("");
+ const [recoveryLoading, setRecoveryLoading] =
+  useState(false);
+ const [recoveryMessage, setRecoveryMessage] =
+  useState("");
  const [username, setUsername] = useState("");
  const [roomCode, setRoomCode] = useState("");
  const [selectedCategory, setSelectedCategory] =
@@ -168,6 +177,7 @@ export default function MultiplayerLobby() {
   useState(false);
  const [playHistory, setPlayHistory] =
   useState([]);
+ const lastEmailConfirmedRef = useRef(null);
 
  useEffect(() => {
   window.scrollTo({
@@ -198,7 +208,8 @@ export default function MultiplayerLobby() {
 
   if (
    authParam === "signin" ||
-   authParam === "signup"
+   authParam === "signup" ||
+   authParam === "recovery"
   ) {
    setAuthMode(authParam);
   }
@@ -270,6 +281,18 @@ export default function MultiplayerLobby() {
  }, [searchParams]);
 
  useEffect(() => {
+  if (searchParams.get("auth") !== "recovery") {
+   return;
+  }
+
+  setAuthMode("recovery");
+  setAuthMessage("");
+  setRecoveryMessage(
+   "Enter a new password for your account."
+  );
+ }, [searchParams]);
+
+ useEffect(() => {
   if (!account || account.emailConfirmed) {
    return;
   }
@@ -296,6 +319,37 @@ export default function MultiplayerLobby() {
 
   return () => clearInterval(interval);
  }, [account?.id, account?.emailConfirmed]);
+
+ useEffect(() => {
+  const wasConfirmed =
+   lastEmailConfirmedRef.current;
+  const isConfirmed =
+   Boolean(account?.emailConfirmed);
+
+  lastEmailConfirmedRef.current =
+   isConfirmed;
+
+  if (
+   !account ||
+   !isConfirmed ||
+   wasConfirmed !== false ||
+   searchParams.get("auth") === "confirmed"
+  ) {
+   return;
+  }
+
+  setGateNotice({
+   eyebrow: "Email confirmed",
+   title: "Congratulations, your email is confirmed.",
+   body: "Enjoy. Room creation is unlocked in this browser too.",
+   primaryLabel: "Continue",
+   onPrimary: () => setGateNotice(null)
+  });
+ }, [
+  account?.id,
+  account?.emailConfirmed,
+  searchParams
+ ]);
 
  useEffect(() => {
   let active = true;
@@ -580,6 +634,47 @@ export default function MultiplayerLobby() {
 
  const handleAuth = async (event) => {
   event.preventDefault();
+
+  if (authMode === "recovery") {
+   if (!recoveryPassword) {
+    setRecoveryMessage(
+     "Enter your new password."
+    );
+    return;
+   }
+
+   if (
+    recoveryPassword !==
+    recoveryPasswordConfirm
+   ) {
+    setRecoveryMessage(
+     "Both password fields must match."
+    );
+    return;
+   }
+
+   setRecoveryLoading(true);
+   setRecoveryMessage("");
+
+   try {
+    await updatePassword(recoveryPassword);
+    setRecoveryPassword("");
+    setRecoveryPasswordConfirm("");
+    setAuthMode("signin");
+    setAuthMessage(
+     "Password updated. You can log in now."
+    );
+    navigate("/multiplayer?auth=signin", {
+     replace: true
+    });
+   } catch (error) {
+    setRecoveryMessage(error.message);
+   } finally {
+    setRecoveryLoading(false);
+   }
+
+   return;
+  }
 
   if (
    !accountEmail.trim() ||
@@ -928,7 +1023,7 @@ export default function MultiplayerLobby() {
        Checking account...
       </p>
      </div>
-    ) : !account ? (
+    ) : !account || authMode === "recovery" ? (
      <form
       onSubmit={handleAuth}
       className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8"
@@ -950,17 +1045,23 @@ export default function MultiplayerLobby() {
       )}
 
       <p className="text-yellow-400 uppercase tracking-[0.25em] text-sm mb-3">
-       Account Required
+       {authMode === "recovery"
+        ? "Reset Password"
+        : "Account Required"}
       </p>
 
       <h1 className="text-4xl sm:text-5xl font-bold mb-5">
-       {authMode === "signup"
-        ? "Create an account"
-        : "Login to multiplayer"}
+       {authMode === "recovery"
+        ? "Choose a new password"
+        : authMode === "signup"
+         ? "Create an account"
+         : "Login to multiplayer"}
       </h1>
 
       <p className="text-zinc-400 leading-relaxed mb-8">
-       Multiplayer includes 2 free hosted rooms. After that, Premium unlocks unlimited game room creation and playing with friends.
+       {authMode === "recovery"
+        ? "Your reset link is active. Set a fresh password to continue."
+        : "Multiplayer includes 2 free hosted rooms. After that, Premium unlocks unlimited game room creation and playing with friends."}
       </p>
 
       {authMessage && (
@@ -968,6 +1069,66 @@ export default function MultiplayerLobby() {
         {authMessage}
        </div>
       )}
+
+      {authMode === "recovery" ? (
+       <>
+        {recoveryMessage && (
+         <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-100 rounded-lg p-4 mb-5">
+          {recoveryMessage}
+         </div>
+        )}
+
+        <input
+         value={recoveryPassword}
+         onChange={(event) =>
+          setRecoveryPassword(
+           event.target.value
+          )
+         }
+         placeholder="New password"
+         type="password"
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
+        />
+
+        <input
+         value={recoveryPasswordConfirm}
+         onChange={(event) =>
+          setRecoveryPasswordConfirm(
+           event.target.value
+          )
+         }
+         placeholder="Confirm new password"
+         type="password"
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
+        />
+
+        <button
+         type="submit"
+         disabled={recoveryLoading}
+         className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold disabled:opacity-60"
+        >
+         {recoveryLoading
+          ? "Updating..."
+          : "Update Password"}
+        </button>
+
+        <button
+         type="button"
+         onClick={() => {
+          setAuthMode("signin");
+          setRecoveryMessage("");
+          navigate(
+           "/multiplayer?auth=signin",
+           { replace: true }
+          );
+         }}
+         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg font-bold mt-4"
+        >
+         Back to login
+        </button>
+       </>
+      ) : (
+       <>
 
       {(showResetPrompt || authMode === "signin") && (
        <button
@@ -1077,6 +1238,8 @@ export default function MultiplayerLobby() {
          Resend confirmation email
         </button>
        )}
+       </>
+      )}
      </form>
     ) : (
     <div
