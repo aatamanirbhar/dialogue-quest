@@ -1354,12 +1354,20 @@ useEffect(() => {
        ? "The host closed this session."
        : "This room has ended or was disposed by the host."}
      </p>
-     <button
-      onClick={() => navigate("/multiplayer")}
-      className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
-     >
-      Back to Multiplayer
-     </button>
+     <div className="flex flex-wrap justify-center gap-3">
+      <button
+       onClick={() => navigate("/multiplayer")}
+       className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
+      >
+       Back to Multiplayer
+      </button>
+      <button
+       onClick={() => navigate("/")}
+       className="bg-zinc-800 px-6 py-3 rounded-lg font-bold"
+      >
+       Home
+      </button>
+     </div>
     </div>
    </div>
   );
@@ -1375,12 +1383,20 @@ useEffect(() => {
      <p className="text-zinc-400 mb-8">
       You are not in this room. Join from the lobby before the game starts.
      </p>
-     <button
-      onClick={() => navigate("/multiplayer")}
-      className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
-     >
-      Open Lobby
-     </button>
+     <div className="flex flex-wrap justify-center gap-3">
+      <button
+       onClick={() => navigate("/multiplayer")}
+       className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
+      >
+       Open Lobby
+      </button>
+      <button
+       onClick={() => navigate("/")}
+       className="bg-zinc-800 px-6 py-3 rounded-lg font-bold"
+      >
+       Home
+      </button>
+     </div>
     </div>
    </div>
   );
@@ -1502,6 +1518,13 @@ useEffect(() => {
         className="bg-zinc-800 px-6 py-3 rounded-lg font-bold"
        >
         Leave Room
+       </button>
+
+       <button
+        onClick={() => navigate("/")}
+        className="bg-zinc-950 border border-zinc-700 px-6 py-3 rounded-lg font-bold"
+       >
+        Home
        </button>
       </div>
      </div>

@@ -3,6 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import Categories from "./pages/Categories";
 import SoloGame from "./pages/SoloGame";
+import LyricsGame from "./pages/LyricsGame";
 import Payment from "./pages/Payment";
 import MultiplayerLobby from "./pages/MultiplayerLobby";
 import Room from "./pages/Room";
@@ -12,6 +13,7 @@ export default function App(){
   <Routes>
    <Route path="/" element={<Home />} />
    <Route path="/categories" element={<Categories />} />
+   <Route path="/lyrics" element={<LyricsGame />} />
    <Route path="/solo/:category" element={<SoloGame />} />
    <Route path="/payment" element={<Payment />} />
    <Route path="/multiplayer" element={<MultiplayerLobby />} />

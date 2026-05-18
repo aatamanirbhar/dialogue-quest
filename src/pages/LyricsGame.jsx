@@ -14,7 +14,7 @@ const normalizeAnswer = (value) =>
 const getActiveLyrics = async () => {
  let response = await supabase
   .from("lyrics_questions")
-  .select("*")
+  .select("id, category, prompt, answer, options, sort_order, is_active, poster_url, trivia_fact")
   .eq("is_active", true)
   .order("sort_order", { ascending: true });
 
@@ -136,7 +136,7 @@ export default function LyricsGame() {
   );
  }
 
- if (!questions.length) {
+  if (!questions.length) {
   return (
    <div className="min-h-screen bg-black text-white flex items-center justify-center p-6 text-center">
     <div>
@@ -153,6 +153,12 @@ export default function LyricsGame() {
       className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
      >
       Back
+     </button>
+     <button
+      onClick={() => navigate("/")}
+      className="ml-3 bg-zinc-800 px-6 py-3 rounded-lg font-bold"
+     >
+      Home
      </button>
     </div>
    </div>
@@ -174,6 +180,12 @@ export default function LyricsGame() {
       className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
      >
       Back to Categories
+     </button>
+     <button
+      onClick={() => navigate("/")}
+      className="ml-3 bg-zinc-800 px-6 py-3 rounded-lg font-bold"
+     >
+      Home
      </button>
     </div>
    </div>

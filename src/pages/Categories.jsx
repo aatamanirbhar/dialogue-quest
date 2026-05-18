@@ -23,8 +23,7 @@ const categories = [
  "tvshows",
  "mix",
  "bollywood",
- "anime",
- "trivia"
+ "anime"
 ];
 
 const mixCategoryOptions = [
@@ -49,7 +48,6 @@ const mixCategoryOptions = [
 const getLabel = (category) => {
  if (category === "tvshows") return "TV Shows";
  if (category === "mix") return "Mix";
- if (category === "trivia") return "Trivia";
  return category;
 };
 
@@ -201,8 +199,7 @@ export default function Categories() {
 
  const playSolo = (category) => {
   if (
-   (category === "mix" ||
-    category === "trivia") &&
+   category === "mix" &&
    !hasPremium
   ) {
    openPremiumMixNotice();
@@ -220,8 +217,7 @@ export default function Categories() {
 
  const playMultiplayer = (category) => {
   if (
-   (category === "mix" ||
-    category === "trivia") &&
+   category === "mix" &&
    !hasPremium
   ) {
    openPremiumMixNotice();
@@ -391,9 +387,7 @@ export default function Categories() {
     <div className="grid md:grid-cols-2 gap-6">
      {categories.map((item) => {
       const locked =
-       (item === "mix" ||
-        item === "trivia") &&
-       !hasPremium;
+       item === "mix" && !hasPremium;
 
       return (
        <div
@@ -414,13 +408,6 @@ export default function Categories() {
             {locked
              ? "Premium unlock: choose the categories you want in one run."
              : "Unlocked: choose exactly which categories can appear."}
-           </p>
-          )}
-          {item === "trivia" && (
-           <p className="text-zinc-400 mt-3">
-            {locked
-             ? "Premium unlock: poster-backed trivia questions in solo and Premium Plus accounts."
-             : "Unlocked: poster-backed trivia questions are ready to play."}
            </p>
           )}
          </div>

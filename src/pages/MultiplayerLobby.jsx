@@ -49,13 +49,9 @@ const mixCategoryOptions = [
   value: "tvshows",
   label: "TV Shows"
  },
-  {
+ {
   value: "anime",
   label: "Anime"
- },
- {
-  value: "trivia",
-  label: "Trivia"
  }
 ];
 
@@ -86,6 +82,33 @@ const DEFAULT_MIX_CATEGORIES = [
  "hollywood",
  "tvshows"
 ];
+
+const EMAIL_CONFIRM_NOTICE_KEY =
+ "dq-email-confirm-notice-shown";
+
+const getEmailConfirmNoticeKey = (account) =>
+ account?.id
+  ? `${EMAIL_CONFIRM_NOTICE_KEY}:${account.id}`
+  : EMAIL_CONFIRM_NOTICE_KEY;
+
+const hasSeenEmailConfirmNotice = (key) => {
+ try {
+  return (
+   window.localStorage.getItem(key) === "true"
+  );
+ } catch (error) {
+  console.error(error);
+  return false;
+ }
+};
+
+const markEmailConfirmNoticeSeen = (key) => {
+ try {
+  window.localStorage.setItem(key, "true");
+ } catch (error) {
+  console.error(error);
+ }
+};
 
 const insertRoomPlayer = async (payload) => {
  const { error } = await supabase
@@ -239,6 +262,25 @@ export default function MultiplayerLobby() {
    return;
   }
 
+  const nextSearchParams = new URLSearchParams(
+   searchParams
+  );
+
+  nextSearchParams.delete("auth");
+
+  const clearConfirmationParam = () => {
+   const nextSearch = nextSearchParams.toString();
+
+   navigate(
+    nextSearch
+     ? `/multiplayer?${nextSearch}`
+     : "/multiplayer",
+    {
+     replace: true
+    }
+   );
+  };
+
   let active = true;
 
   const confirmEmail = async () => {
@@ -252,13 +294,30 @@ export default function MultiplayerLobby() {
      setAccount(nextAccount);
     }
 
+    const noticeKey =
+     getEmailConfirmNoticeKey(nextAccount);
+
+    if (hasSeenEmailConfirmNotice(noticeKey)) {
+     clearConfirmationParam();
+     return;
+    }
+
+    markEmailConfirmNoticeSeen(noticeKey);
+
     setGateNotice({
      eyebrow: "Email confirmed",
-     title: "Congratulations, your email is confirmed.",
-     body: "Enjoy. Room creation is unlocked in this browser too.",
-     primaryLabel: "Continue",
-     onPrimary: () => setGateNotice(null)
+     title: "Your email is confirmed.",
+     body:
+      "Refresh your browser and login to start creating rooms.",
+     primaryLabel: "Login",
+     onPrimary: () => {
+       setGateNotice(null);
+      navigate("/multiplayer?auth=signin", {
+       replace: true
+      });
+     }
     });
+    clearConfirmationParam();
    } catch (error) {
     if (!active) return;
     setGateNotice({
@@ -276,7 +335,7 @@ export default function MultiplayerLobby() {
   return () => {
    active = false;
   };
- }, [searchParams]);
+ }, [navigate, searchParams]);
 
  useEffect(() => {
   if (searchParams.get("auth") !== "recovery") {
@@ -1065,6 +1124,13 @@ export default function MultiplayerLobby() {
         >
          Back to login
         </button>
+        <button
+         type="button"
+         onClick={() => navigate("/")}
+         className="w-full bg-zinc-950 border border-zinc-700 p-4 rounded-lg font-bold mt-4"
+        >
+         Home
+        </button>
        </>
       ) : (
        <>
@@ -1138,6 +1204,14 @@ export default function MultiplayerLobby() {
         : authMode === "signup"
          ? "Create Account"
          : "Login"}
+      </button>
+
+      <button
+       type="button"
+       onClick={() => navigate("/")}
+       className="w-full bg-zinc-950 border border-zinc-700 p-4 rounded-lg font-bold mt-4"
+      >
+       Home
       </button>
 
       <button
@@ -1258,6 +1332,12 @@ export default function MultiplayerLobby() {
        className="mt-4 ml-3 bg-yellow-400 text-black border border-yellow-400 px-4 py-2 rounded-lg font-bold"
       >
        Profile
+      </button>
+      <button
+       onClick={() => navigate("/")}
+       className="mt-4 ml-3 bg-zinc-950 border border-zinc-700 px-4 py-2 rounded-lg font-bold"
+      >
+       Home
       </button>
      </div>
 

@@ -1,9 +1,12 @@
 import { supabase } from "./supabase";
 
 const TRIAL_LIMIT = 2;
-const HISTORY_TABLE = "match_history";
-const LEGACY_HISTORY_TABLE = "play_history";
+const HISTORY_TABLE = "play_history";
+const LEGACY_HISTORY_TABLE = "match_history";
 const ACCOUNT_SYNC_KEY = "dq-account-sync";
+const LOCAL_HISTORY_PREFIX = "dq-play-history:";
+const HISTORY_SCHEMA_ERROR =
+ /relation|table|schema cache|column|does not exist/i;
 
 export const PLANS = {
  FREE: "free",
@@ -104,6 +107,56 @@ name:
   user?.user_metadata?.avatar_url ||
   ""
 });
+
+const getLocalHistoryKey = (userId) =>
+ `${LOCAL_HISTORY_PREFIX}${userId}`;
+
+const readLocalHistory = (userId) => {
+ try {
+  return JSON.parse(
+   window.localStorage.getItem(
+    getLocalHistoryKey(userId)
+   ) || "[]"
+  );
+ } catch (error) {
+  console.error(error);
+  return [];
+ }
+};
+
+const writeLocalHistory = (userId, entry) => {
+ try {
+ const history = readLocalHistory(userId);
+  const fallbackId =
+   [
+    entry.created_at,
+    entry.mode,
+    entry.category,
+    entry.room_code,
+    entry.result
+   ]
+    .filter(Boolean)
+    .join(":") || crypto.randomUUID();
+  const nextHistory = [
+   {
+    id:
+     entry.id || fallbackId,
+    created_at:
+     entry.created_at ||
+     new Date().toISOString(),
+    ...entry
+   },
+   ...history
+  ].slice(0, 50);
+
+  window.localStorage.setItem(
+   getLocalHistoryKey(userId),
+   JSON.stringify(nextHistory)
+  );
+ } catch (error) {
+  console.error(error);
+ }
+};
 
 export async function getSession() {
  const { data, error } =
@@ -534,24 +587,46 @@ export async function recordPlayHistory(entry) {
   metadata: entry.metadata || {}
  };
 
- const writeHistory = async (table) =>
+ const writeHistory = async (table, row) =>
   supabase
    .from(table)
-   .insert(payload)
+   .insert(row)
    .select("*")
    .single();
 
- let response = await writeHistory(HISTORY_TABLE);
+ let response = await writeHistory(
+  HISTORY_TABLE,
+  payload
+ );
  let { data, error } = response;
 
  if (
   error &&
-  /relation|table|schema cache/i.test(
+  HISTORY_SCHEMA_ERROR.test(
    error.message || ""
   )
  ) {
   response = await writeHistory(
-   LEGACY_HISTORY_TABLE
+   LEGACY_HISTORY_TABLE,
+   payload
+  );
+  data = response.data;
+  error = response.error;
+ }
+
+ if (
+  error &&
+  HISTORY_SCHEMA_ERROR.test(
+   error.message || ""
+  )
+ ) {
+  response = await writeHistory(
+   LEGACY_HISTORY_TABLE,
+   {
+    room_code: entry.roomCode || null,
+    winner_player_id:
+     entry.winnerPlayerId || null
+   }
   );
   data = response.data;
   error = response.error;
@@ -559,8 +634,11 @@ export async function recordPlayHistory(entry) {
 
  if (error) {
   console.error(error);
+  writeLocalHistory(user.id, payload);
   return null;
  }
+
+ writeLocalHistory(user.id, data || payload);
 
  return data;
 }
@@ -588,23 +666,47 @@ export async function getPlayHistory(limit = 30) {
 
  if (
   error &&
-  /relation|table|schema cache/i.test(
+  HISTORY_SCHEMA_ERROR.test(
    error.message || ""
   )
 ) {
-  response = await readHistory(
-   LEGACY_HISTORY_TABLE
-  );
+  response = await supabase
+   .from(LEGACY_HISTORY_TABLE)
+   .select("*")
+   .order("created_at", {
+    ascending: false
+   })
+   .limit(limit);
   data = response.data;
   error = response.error;
  }
 
  if (error) {
   console.error(error);
-  return [];
+  return readLocalHistory(user.id);
  }
 
- return data || [];
+ const remoteHistory = data || [];
+ const localHistory = readLocalHistory(user.id);
+ const seen = new Set();
+
+ return [...remoteHistory, ...localHistory]
+  .filter((item) => {
+   const key =
+    item.id ||
+    [
+     item.created_at,
+     item.mode,
+     item.category,
+     item.room_code,
+     item.result
+    ].join(":");
+
+   if (seen.has(key)) return false;
+   seen.add(key);
+   return true;
+  })
+  .slice(0, limit);
 }
 
 export async function useTrialCredit(account) {

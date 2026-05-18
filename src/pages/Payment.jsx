@@ -11,15 +11,19 @@ import { supabase } from "../lib/supabase";
 
 const SUPPORT_EMAIL = "jkjkjkheyhey@gmail.com";
 const PAYPAL_TARGET = "paypal.me/vikas117";
-const UPI_ID = "8949720403@ptyes";
+const UPI_ID = "8949720403@yapl";
+const UPI_QR_SRC = "/upi-qr.jpeg";
+
+const formatInr = (amount) =>
+ `Rs ${Number(amount).toLocaleString("en-IN")}`;
 
 const plans = [
  {
   name: "Premium",
   price: "$15",
   amount: 15,
-  upiPrice: "UPI",
-  upiAmount: 15,
+  upiPrice: formatInr(1299),
+  upiAmount: 1299,
   period: "lifetime account upgrade",
   audience: "Best for friend groups who host often.",
   paypalLink: "https://paypal.me/vikas117",
@@ -34,10 +38,10 @@ const plans = [
  },
  {
   name: "Premium Plus",
-  price: "$15",
-  amount: 15,
-  upiPrice: "UPI",
-  upiAmount: 15,
+  price: "$49",
+  amount: 49,
+  upiPrice: formatInr(2499),
+  upiAmount: 2499,
   period: "lifetime host upgrade",
   audience: "Made for parties, classrooms, and bigger game nights.",
   paypalLink: "https://paypal.me/vikas117",
@@ -95,6 +99,10 @@ export default function Payment() {
   useState("paypal");
  const [showUpiQr, setShowUpiQr] =
   useState(false);
+ const [paymentPrompt, setPaymentPrompt] =
+  useState(null);
+ const [successPrompt, setSuccessPrompt] =
+  useState(null);
  const [proofFile, setProofFile] =
   useState(null);
  const [proofPreview, setProofPreview] =
@@ -119,19 +127,34 @@ export default function Payment() {
   };
  }, []);
 
- const getManualPaymentMessage = (method) => {
+ const getManualPaymentMessage = (
+  method,
+  plan = selectedPlan
+ ) => {
   if (method === "upi") {
-   return `Send the money to UPI ID ${UPI_ID} or scan the QR code below, then fill the form above with your transaction details. We will verify your details manually and it can take up to 1 day to give you your premium account access. For any troubles you can mail us at ${SUPPORT_EMAIL}.`;
+   return `Pay ${plan.upiPrice} to UPI ID ${UPI_ID} or scan the QR code below. After payment, submit the transaction reference here so we can review and activate ${plan.name}.`;
   }
 
-  return `Send the money to ${PAYPAL_TARGET} and fill the form above with your transaction details. We will verify your details manually and it can take up to 1 day to give you your premium account access. For any troubles you can mail us at ${SUPPORT_EMAIL}.`;
+  return `Pay ${plan.price} to ${PAYPAL_TARGET}. After payment, submit the PayPal transaction ID or receipt details here so we can review and activate ${plan.name}.`;
  };
 
- const showManualPaymentPopup = (method) => {
+ const showManualPaymentPopup = (
+  method,
+  plan
+ ) => {
   const message =
-   getManualPaymentMessage(method);
+   getManualPaymentMessage(method, plan);
+
   setPaymentMessage(message);
-  window.alert(message);
+  setPaymentPrompt({
+   method,
+   plan,
+   title:
+    method === "upi"
+     ? "Pay with UPI"
+     : "Pay with PayPal",
+   body: message
+  });
  };
 
  const openPaymentLink = (
@@ -146,18 +169,15 @@ export default function Payment() {
   setSelectedPlan(plan);
   setPaymentMethod(method);
   setShowUpiQr(method === "upi");
+  setPaymentPrompt(null);
+  setSuccessPrompt(null);
 
   if (method === "upi") {
-   showManualPaymentPopup("upi");
-   window.open(
-    getUpiLink(plan),
-    "_blank",
-    "noopener,noreferrer"
-   );
+   showManualPaymentPopup("upi", plan);
    return;
   }
 
-  showManualPaymentPopup("paypal");
+  showManualPaymentPopup("paypal", plan);
 
   window.open(
    plan.paypalLink,
@@ -263,36 +283,49 @@ export default function Payment() {
  const notifyPaymentApi = async (
   proofUrl = ""
  ) => {
+  const response = await fetch(
+   "/api/payment-notify",
+   {
+    method: "POST",
+    headers: {
+     "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+     userId: account.id,
+     email: account.email,
+     name: account.name,
+     currentPlan: account.plan,
+     requestedPlan: selectedPlan.plan,
+     requestedPlanName:
+      selectedPlan.name,
+     amount: selectedPlan.amount,
+     upiAmount: selectedPlan.upiAmount,
+     paymentMethod,
+     transactionId: transactionId.trim(),
+     payerName: payerName.trim(),
+     contact: contact.trim(),
+     note: note.trim(),
+     proofUrl
+    })
+   }
+  );
+
+  let payload = {};
+
   try {
-   await fetch(
-    "/api/payment-notify",
-    {
-     method: "POST",
-     headers: {
-      "Content-Type": "application/json"
-     },
-     body: JSON.stringify({
-      userId: account.id,
-      email: account.email,
-      name: account.name,
-      currentPlan: account.plan,
-      requestedPlan: selectedPlan.plan,
-      requestedPlanName:
-       selectedPlan.name,
-      amount: selectedPlan.amount,
-      upiAmount: selectedPlan.upiAmount,
-      paymentMethod,
-      transactionId,
-      payerName,
-      contact,
-      note,
-      proofUrl
-     })
-    }
-   );
-  } catch (error) {
-   console.error(error);
+   payload = await response.json();
+  } catch {
+   payload = {};
   }
+
+  if (!response.ok) {
+   throw new Error(
+    payload.message ||
+     "Payment was saved, but Telegram notification failed."
+   );
+  }
+
+  return payload;
  };
 
  const submitPaymentReview = async (
@@ -319,14 +352,25 @@ export default function Payment() {
    const proofUrl =
     await uploadPaymentProof();
    await savePaymentSubmission(proofUrl);
-   notifyPaymentApi(proofUrl);
+   const notifyResult =
+    await notifyPaymentApi(proofUrl);
+   const telegramSent =
+    notifyResult?.telegram?.sent;
 
-   setPaymentMessage(
-    "Payment details submitted. Hang tight while we confirm your payment details."
-   );
-   window.alert(
-    "Payment details submitted. Hang tight while we confirm your payment details."
-   );
+   const successMessage = telegramSent
+    ? "Payment details submitted. We received your review request and sent the Telegram alert."
+    : `Payment details submitted. We received your review request, but Telegram did not confirm delivery${
+       notifyResult?.telegram?.reason
+        ? `: ${notifyResult.telegram.reason}`
+        : "."
+      }`;
+
+   setPaymentMessage(successMessage);
+   setSuccessPrompt({
+    title: "Payment details submitted",
+    body: successMessage,
+    telegramSent
+   });
    setTransactionId("");
    setPayerName("");
    setContact("");
@@ -345,6 +389,145 @@ export default function Payment() {
 
  return (
   <div className="min-h-screen bg-black text-white">
+   {paymentPrompt && (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+     <div className="w-full max-w-xl bg-zinc-950 border border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-2xl">
+      <div className="flex items-start justify-between gap-4 mb-4">
+       <div>
+        <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-3">
+         Manual Payment
+        </p>
+        <h2 className="text-3xl font-bold">
+         {paymentPrompt.title}
+        </h2>
+       </div>
+       <button
+        type="button"
+        onClick={() => setPaymentPrompt(null)}
+        className="bg-zinc-900 border border-zinc-700 h-10 w-10 rounded-lg font-bold"
+        aria-label="Close payment prompt"
+       >
+        X
+       </button>
+      </div>
+
+      <p className="text-zinc-300 leading-relaxed mb-5">
+       {paymentPrompt.body}
+      </p>
+
+      <div className="grid sm:grid-cols-2 gap-3 mb-5">
+       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+        <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+         Plan
+        </p>
+        <p className="text-xl font-bold">
+         {paymentPrompt.plan.name}
+        </p>
+       </div>
+       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+        <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+         Amount
+        </p>
+        <p className="text-xl font-bold text-yellow-300">
+         {paymentPrompt.method === "upi"
+          ? paymentPrompt.plan.upiPrice
+          : paymentPrompt.plan.price}
+        </p>
+       </div>
+      </div>
+
+      {paymentPrompt.method === "upi" ? (
+       <div className="grid sm:grid-cols-[0.9fr_1.1fr] gap-5 items-center">
+        <img
+         src={UPI_QR_SRC}
+         alt="UPI QR code for Vikas Dubey"
+         className="w-full rounded-xl border border-zinc-700 bg-white"
+        />
+        <div className="space-y-3">
+         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+           UPI ID
+          </p>
+          <p className="text-lg font-bold break-all">
+           {UPI_ID}
+          </p>
+         </div>
+         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+           Help
+          </p>
+          <p className="text-sm text-zinc-300">
+           For payment trouble, mail {SUPPORT_EMAIL}.
+          </p>
+         </div>
+         <button
+          type="button"
+          onClick={() =>
+           window.open(
+            getUpiLink(paymentPrompt.plan),
+            "_blank",
+            "noopener,noreferrer"
+           )
+          }
+          className="w-full bg-zinc-900 border border-zinc-700 p-4 rounded-lg font-bold"
+         >
+          Open UPI app
+         </button>
+         <button
+          type="button"
+          onClick={() => setPaymentPrompt(null)}
+          className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold"
+         >
+          I will submit the details
+         </button>
+        </div>
+       </div>
+      ) : (
+       <div className="grid gap-3">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+         <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+          PayPal
+         </p>
+         <p className="text-lg font-bold break-all">
+          {PAYPAL_TARGET}
+         </p>
+        </div>
+        <button
+         type="button"
+         onClick={() => setPaymentPrompt(null)}
+         className="bg-yellow-400 text-black p-4 rounded-lg font-bold"
+        >
+         I will submit the details
+        </button>
+       </div>
+      )}
+     </div>
+    </div>
+   )}
+
+   {successPrompt && (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+     <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl text-center">
+      <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-4">
+       Review Request
+      </p>
+      <h2 className="text-3xl font-bold mb-4">
+       {successPrompt.title}
+      </h2>
+      <p className="text-zinc-300 leading-relaxed mb-6">
+       {successPrompt.body}
+      </p>
+      <button
+       type="button"
+       onClick={() => setSuccessPrompt(null)}
+       className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold"
+      >
+       Done
+      </button>
+     </div>
+    </div>
+   )}
+
    <div className="max-w-6xl mx-auto px-5 sm:px-6 py-8 sm:py-10">
     <button
      onClick={() => navigate("/multiplayer")}
@@ -391,13 +574,21 @@ export default function Payment() {
          UPI QR
         </p>
         <img
-         src="/upi-qr.jpeg"
+         src={UPI_QR_SRC}
          alt="UPI QR code for Vikas Dubey"
          className="w-full max-w-sm rounded-lg border border-zinc-700 bg-white"
         />
         <p className="text-zinc-400 mt-4">
-         UPI ID: {UPI_ID}
+        UPI ID: {UPI_ID} - Amount:{" "}
+         {selectedPlan.upiPrice}
         </p>
+        <button
+         type="button"
+         onClick={() => navigate("/")}
+         className="mt-4 bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg font-bold"
+        >
+         Home
+        </button>
        </div>
       )}
 
@@ -425,8 +616,10 @@ export default function Payment() {
           <option
            key={plan.plan}
            value={plan.plan}
-          >
+         >
            {plan.name} - {plan.price}
+           {" / "}
+           {plan.upiPrice} UPI
           </option>
          ))}
         </select>
@@ -593,7 +786,7 @@ export default function Payment() {
             : "border-zinc-700 text-white"
           }`}
          >
-          UPI
+          UPI - {plan.upiPrice}
          </button>
         </div>
 

@@ -93,9 +93,14 @@ const sendTelegramNotification = async (
   );
  }
 
- return {
-  sent: true
- };
+  return {
+   sent: true
+  };
+};
+
+const normalizeAmount = (value, fallback = 0) => {
+ const number = Number(value);
+ return Number.isFinite(number) ? number : fallback;
 };
 
 module.exports = async (request, response) => {
@@ -142,10 +147,12 @@ module.exports = async (request, response) => {
    return;
   }
 
+  const amount = normalizeAmount(body.amount);
+  const upiAmount = normalizeAmount(body.upiAmount);
   const note = [
    `Requested plan: ${body.requestedPlanName}`,
-   `Amount: $${body.amount}`,
-   `UPI amount: Rs ${body.upiAmount || "N/A"}`,
+   `Amount: $${amount}`,
+   `UPI amount: Rs ${upiAmount || "N/A"}`,
    `Method: ${body.paymentMethod || "paypal"}`,
    `Transaction: ${body.transactionId}`,
    `Payer: ${body.payerName || "Not provided"}`,
@@ -161,7 +168,7 @@ module.exports = async (request, response) => {
     name: body.name || null,
     payment_status: "pending_review",
     paid_plan: body.requestedPlan,
-    paid_amount: Number(body.amount),
+    paid_amount: amount,
     payment_provider:
      body.paymentMethod === "upi"
       ? "upi_manual"
@@ -176,21 +183,22 @@ module.exports = async (request, response) => {
   if (error) throw error;
 
   const notificationText = [
-   "New premium payment submitted",
+   "Payment details submitted",
    `Name: ${body.name || "Unknown"}`,
    `Email: ${body.email}`,
    `User ID: ${body.userId}`,
    `Current plan: ${body.currentPlan || "unknown"}`,
    `Requested plan: ${body.requestedPlanName}`,
-   `Amount: $${body.amount}`,
-   `UPI amount: Rs ${body.upiAmount || "N/A"}`,
+   `Amount: $${amount}`,
+   `UPI amount: Rs ${upiAmount || "N/A"}`,
    `Method: ${body.paymentMethod || "paypal"}`,
    `Transaction: ${body.transactionId}`,
    `Payer: ${body.payerName || "Not provided"}`,
    `Contact: ${body.contact || "Not provided"}`,
    `Note: ${body.note || "None"}`,
+   `Proof: ${body.proofUrl || "Not uploaded"}`,
    "",
-   "Approve in Supabase by setting plan/payment_status to paid."
+   "Approve in Supabase by setting payment_status to paid and updating the plan if needed."
   ].join("\n");
   let telegram = {
    sent: false
