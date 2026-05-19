@@ -1,6 +1,6 @@
-const {
+import {
  createClient
-} = require("@supabase/supabase-js");
+} from "@supabase/supabase-js";
 
 const readBody = async (request) => {
  const chunks = [];
@@ -31,28 +31,36 @@ const sendJson = (response, status, body) => {
  response.end(JSON.stringify(body));
 };
 
-const getSupabase = () => {
+const getSupabase = (authHeader = "") => {
  const supabaseUrl =
   process.env.SUPABASE_URL ||
   process.env.VITE_SUPABASE_URL;
  const serviceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY;
+ const anonKey =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY;
+ const key = serviceRoleKey || anonKey;
 
- if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error(
-   "Supabase server credentials are missing."
-  );
+ if (!supabaseUrl || !key) {
+  return null;
  }
 
- return createClient(
-  supabaseUrl,
-  serviceRoleKey,
-  {
-   auth: {
-    persistSession: false
-   }
+ const options = {
+  auth: {
+   persistSession: false
   }
- );
+ };
+
+ if (!serviceRoleKey && authHeader) {
+  options.global = {
+   headers: {
+    Authorization: authHeader
+   }
+  };
+ }
+
+ return createClient(supabaseUrl, key, options);
 };
 
 const sendTelegramNotification = async (
@@ -98,7 +106,10 @@ const sendTelegramNotification = async (
  };
 };
 
-module.exports = async (request, response) => {
+export default async function handler(
+ request,
+ response
+) {
  response.setHeader(
   "Access-Control-Allow-Origin",
   "*"
@@ -109,7 +120,7 @@ module.exports = async (request, response) => {
  );
  response.setHeader(
   "Access-Control-Allow-Headers",
-  "Content-Type"
+  "Content-Type, Authorization"
  );
 
  if (request.method === "OPTIONS") {
@@ -150,30 +161,103 @@ module.exports = async (request, response) => {
    `Transaction: ${body.transactionId}`,
    `Payer: ${body.payerName || "Not provided"}`,
    `Contact: ${body.contact || "Not provided"}`,
+   body.proofUploadError
+    ? `Proof upload failed: ${body.proofUploadError}`
+    : "",
    `Note: ${body.note || "None"}`
-  ].join("\n");
-  const supabase = getSupabase();
-  const { error } = await supabase
-   .from("profiles")
-   .upsert({
-    id: body.userId,
+  ].filter(Boolean).join("\n");
+  const supabase = getSupabase(
+   request.headers.authorization ||
+    request.headers.Authorization
+  );
+  let serverSave = {
+   saved: false,
+   reason:
+    "Supabase server credentials are not configured."
+  };
+
+  if (supabase) {
+   const submission = {
+    id: body.submissionId || undefined,
+    user_id: body.userId,
     email: body.email,
     name: body.name || null,
-    payment_status: "pending_review",
-    paid_plan: body.requestedPlan,
-    paid_amount: Number(body.amount),
-    payment_provider:
-     body.paymentMethod === "upi"
-      ? "upi_manual"
-      : "paypal_manual",
-    payment_order_id:
-     body.transactionId,
-    payment_note: note
-   }, {
-    onConflict: "id"
-   });
+    current_plan: body.currentPlan || null,
+    requested_plan: body.requestedPlan,
+    requested_plan_name:
+     body.requestedPlanName || null,
+    amount: Number(body.amount || 0),
+    upi_amount: Number(body.upiAmount || 0),
+    payment_method:
+     body.paymentMethod || "paypal",
+    transaction_id: body.transactionId,
+    payer_name: body.payerName || null,
+    contact: body.contact || null,
+    note: [
+     body.note || "",
+     body.proofUploadError
+      ? `Proof upload failed: ${body.proofUploadError}`
+      : ""
+    ].filter(Boolean).join("\n") || null,
+    proof_url: body.proofUrl || null,
+    status: "pending_review"
+   };
 
-  if (error) throw error;
+   const { error: submissionError } =
+    await supabase
+     .from("payment_submissions")
+     .insert(submission);
+
+   if (
+    submissionError &&
+    !/duplicate key/i.test(
+     submissionError.message || ""
+    )
+   ) {
+    serverSave = {
+     saved: false,
+     reason: submissionError.message
+    };
+   } else {
+    serverSave = {
+     saved: true,
+     table: "payment_submissions"
+    };
+   }
+
+   const { error } = await supabase
+    .from("profiles")
+    .upsert({
+     id: body.userId,
+     email: body.email,
+     name: body.name || null,
+     payment_status: "pending_review",
+     paid_plan: body.requestedPlan,
+     paid_amount: Number(body.amount),
+     payment_provider:
+      body.paymentMethod === "upi"
+       ? "upi_manual"
+       : "paypal_manual",
+     payment_order_id:
+      body.transactionId,
+     payment_note: note
+    }, {
+     onConflict: "id"
+    });
+
+   if (error) {
+    serverSave = {
+     ...serverSave,
+     profileSaved: false,
+     profileReason: error.message
+    };
+   } else {
+    serverSave = {
+     ...serverSave,
+     profileSaved: true
+    };
+   }
+  }
 
   const notificationText = [
    "New premium payment submitted",
@@ -188,10 +272,14 @@ module.exports = async (request, response) => {
    `Transaction: ${body.transactionId}`,
    `Payer: ${body.payerName || "Not provided"}`,
    `Contact: ${body.contact || "Not provided"}`,
+   `Proof: ${body.proofUrl || "Not uploaded"}`,
+   body.proofUploadError
+    ? `Proof upload failed: ${body.proofUploadError}`
+    : "",
    `Note: ${body.note || "None"}`,
    "",
    "Approve in Supabase by setting plan/payment_status to paid."
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   let telegram = {
    sent: false
   };
@@ -210,11 +298,12 @@ module.exports = async (request, response) => {
 
   sendJson(response, 200, {
    ok: true,
-   telegram
+   telegram,
+   serverSave
   });
  } catch (error) {
   sendJson(response, error.statusCode || 500, {
    message: error.message
   });
  }
-};
+}

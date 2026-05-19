@@ -40,6 +40,10 @@ const isMixCategory = (value) =>
  normalizeCategory(value).replace(/\s+/g, "") ===
  "mix";
 
+const isLyricsCategory = (value) =>
+ normalizeCategory(value).replace(/\s+/g, "") ===
+ "lyrics";
+
 const parseMixCategories = (value) => {
  const categories = String(value || "")
   .split(",")
@@ -150,13 +154,19 @@ export default function SoloGame() {
   }
 
   if (
-   normalizeCategory(category).replace(/\s+/g, "") ===
-    "premiumplus" &&
+   isLyricsCategory(category) &&
    !isPremiumPlus(nextAccount)
   ) {
    setQuotes([]);
    setPremiumBlocked(true);
    setLoading(false);
+   return;
+  }
+
+  if (isLyricsCategory(category)) {
+   navigate("/lyrics", {
+    replace: true
+   });
    return;
   }
 

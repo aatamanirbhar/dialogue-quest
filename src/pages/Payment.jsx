@@ -8,9 +8,11 @@ import {
  getAccount
 } from "../lib/account";
 import { supabase } from "../lib/supabase";
+import qrCodeUrl from "/qr.jpeg?url";
 
 const SUPPORT_EMAIL = "jkjkjkheyhey@gmail.com";
 const PAYPAL_TARGET = "paypal.me/vikas117";
+const PAYPAL_LINK = `https://${PAYPAL_TARGET}`;
 const UPI_ID = "8949720403@ptyes";
 
 const plans = [
@@ -18,11 +20,11 @@ const plans = [
   name: "Premium",
   price: "$15",
   amount: 15,
-  upiPrice: "UPI",
-  upiAmount: 15,
+  upiPrice: "Rs 1299",
+  upiAmount: 1299,
   period: "lifetime account upgrade",
   audience: "Best for friend groups who host often.",
-  paypalLink: "https://paypal.me/vikas117",
+  paypalLink: PAYPAL_LINK,
   features: [
    "Unlimited hosted multiplayer rooms",
    "Keep playing after the 2 free-room trial",
@@ -34,13 +36,13 @@ const plans = [
  },
  {
   name: "Premium Plus",
-  price: "$15",
-  amount: 15,
-  upiPrice: "UPI",
-  upiAmount: 15,
+  price: "$49",
+  amount: 49,
+  upiPrice: "Rs 2499",
+  upiAmount: 2499,
   period: "lifetime host upgrade",
   audience: "Made for parties, classrooms, and bigger game nights.",
-  paypalLink: "https://paypal.me/vikas117",
+  paypalLink: PAYPAL_LINK,
   features: [
    "Host rooms for up to 20 players",
    "Choose the exact player cap before hosting",
@@ -74,6 +76,26 @@ const getUpiLink = (plan) => {
  return `upi://pay?${params.toString()}`;
 };
 
+const createSubmissionId = () => {
+ if (window.crypto?.randomUUID) {
+  return window.crypto.randomUUID();
+ }
+
+ return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+  /[xy]/g,
+  (character) => {
+   const randomValue =
+    (Math.random() * 16) | 0;
+   const nextValue =
+    character === "x"
+     ? randomValue
+     : (randomValue & 0x3) | 0x8;
+
+   return nextValue.toString(16);
+  }
+ );
+};
+
 export default function Payment() {
  const navigate = useNavigate();
  const [account, setAccount] = useState(null);
@@ -95,6 +117,8 @@ export default function Payment() {
   useState("paypal");
  const [showUpiQr, setShowUpiQr] =
   useState(false);
+ const [pendingPayment, setPendingPayment] =
+  useState(null);
  const [proofFile, setProofFile] =
   useState(null);
  const [proofPreview, setProofPreview] =
@@ -119,19 +143,15 @@ export default function Payment() {
   };
  }, []);
 
- const getManualPaymentMessage = (method) => {
+ const getManualPaymentMessage = (
+  plan,
+  method
+ ) => {
   if (method === "upi") {
-   return `Send the money to UPI ID ${UPI_ID} or scan the QR code below, then fill the form above with your transaction details. We will verify your details manually and it can take up to 1 day to give you your premium account access. For any troubles you can mail us at ${SUPPORT_EMAIL}.`;
+   return `Do the UPI payment of Rs ${plan.upiAmount} on ${UPI_ID}. And fill the above form with your payment details. It can take up to one day to give you premium access.`;
   }
 
-  return `Send the money to ${PAYPAL_TARGET} and fill the form above with your transaction details. We will verify your details manually and it can take up to 1 day to give you your premium account access. For any troubles you can mail us at ${SUPPORT_EMAIL}.`;
- };
-
- const showManualPaymentPopup = (method) => {
-  const message =
-   getManualPaymentMessage(method);
-  setPaymentMessage(message);
-  window.alert(message);
+  return `Do a payment of ${plan.amount} dollars to ${PAYPAL_TARGET}. And fill the above form with your payment details. It can take up to one day to give you premium access.`;
  };
 
  const openPaymentLink = (
@@ -146,18 +166,26 @@ export default function Payment() {
   setSelectedPlan(plan);
   setPaymentMethod(method);
   setShowUpiQr(method === "upi");
+  setPaymentMessage(
+   getManualPaymentMessage(plan, method)
+  );
+  setPendingPayment({
+   plan,
+   method
+  });
+ };
+
+ const confirmPendingPayment = () => {
+  if (!pendingPayment) return;
+
+  const { plan, method } = pendingPayment;
+
+  setPendingPayment(null);
 
   if (method === "upi") {
-   showManualPaymentPopup("upi");
-   window.open(
-    getUpiLink(plan),
-    "_blank",
-    "noopener,noreferrer"
-   );
+   window.location.href = getUpiLink(plan);
    return;
   }
-
-  showManualPaymentPopup("paypal");
 
   window.open(
    plan.paypalLink,
@@ -194,9 +222,21 @@ export default function Payment() {
  };
 
  const savePaymentSubmission = async (
-  proofUrl = ""
+  proofUrl = "",
+  submissionId,
+  proofUploadWarning = ""
  ) => {
+  const finalNote = [
+   note.trim(),
+   proofUploadWarning
+    ? `Proof upload failed: ${proofUploadWarning}`
+    : ""
+  ]
+   .filter(Boolean)
+   .join("\n");
+
   const submission = {
+   id: submissionId,
    user_id: account.id,
    email: account.email,
    name: account.name || null,
@@ -209,7 +249,7 @@ export default function Payment() {
    transaction_id: transactionId.trim(),
    payer_name: payerName.trim() || null,
    contact: contact.trim() || null,
-   note: note.trim() || null,
+   note: finalNote || null,
    proof_url: proofUrl || null,
    status: "pending_review"
   };
@@ -247,6 +287,9 @@ export default function Payment() {
        `Payer: ${payerName || "Not provided"}`,
        `Contact: ${contact || "Not provided"}`,
        `Proof: ${proofUrl || "Not uploaded"}`,
+       proofUploadWarning
+        ? `Proof upload failed: ${proofUploadWarning}`
+        : "",
        `Note: ${note || "None"}`
       ].join("\n")
      }, {
@@ -261,18 +304,28 @@ export default function Payment() {
  };
 
  const notifyPaymentApi = async (
-  proofUrl = ""
+  proofUrl = "",
+  submissionId,
+  proofUploadWarning = ""
  ) => {
-  try {
-   await fetch(
+  const { data: sessionData } =
+   await supabase.auth.getSession();
+  const headers = {
+   "Content-Type": "application/json"
+  };
+
+  if (sessionData.session?.access_token) {
+   headers.Authorization = `Bearer ${sessionData.session.access_token}`;
+  }
+
+  const response = await fetch(
     "/api/payment-notify",
     {
      method: "POST",
-     headers: {
-      "Content-Type": "application/json"
-     },
+     headers,
      body: JSON.stringify({
-      userId: account.id,
+     userId: account.id,
+      submissionId,
       email: account.email,
       name: account.name,
       currentPlan: account.plan,
@@ -286,13 +339,29 @@ export default function Payment() {
       payerName,
       contact,
       note,
-      proofUrl
+      proofUrl,
+      proofUploadError:
+       proofUploadWarning
      })
     }
    );
-  } catch (error) {
-   console.error(error);
+
+  let payload = {};
+
+  try {
+   payload = await response.json();
+  } catch {
+   payload = {};
   }
+
+  if (!response.ok) {
+   throw new Error(
+    payload.message ||
+     "Payment details were saved, but Telegram notification failed."
+   );
+  }
+
+  return payload;
  };
 
  const submitPaymentReview = async (
@@ -316,16 +385,51 @@ export default function Payment() {
   setPaymentMessage("");
 
   try {
-   const proofUrl =
-    await uploadPaymentProof();
-   await savePaymentSubmission(proofUrl);
-   notifyPaymentApi(proofUrl);
+   const submissionId =
+    createSubmissionId();
+   let proofUrl = "";
+   let proofUploadWarning = "";
+
+   try {
+    proofUrl = await uploadPaymentProof();
+   } catch (uploadError) {
+    proofUploadWarning =
+     getErrorMessage(uploadError);
+    console.error(uploadError);
+   }
+
+   await savePaymentSubmission(
+    proofUrl,
+    submissionId,
+    proofUploadWarning
+   );
+   const notification =
+    await notifyPaymentApi(
+    proofUrl,
+    submissionId,
+    proofUploadWarning
+   );
+
+   const warnings = [
+    proofUploadWarning
+     ? "Your text payment details were saved, but the proof image could not be uploaded."
+     : "",
+    notification?.telegram?.sent === false
+     ? `Telegram notification did not confirm: ${
+        notification.telegram.reason ||
+        "not configured"
+       }`
+     : ""
+   ].filter(Boolean);
 
    setPaymentMessage(
-    "Payment details submitted. Hang tight while we confirm your payment details."
+    [
+     "Payment details submitted and sent for review. Hang tight while we confirm your payment details.",
+     ...warnings
+    ].join(" ")
    );
    window.alert(
-    "Payment details submitted. Hang tight while we confirm your payment details."
+    "Payment details submitted and sent for review. Hang tight while we confirm your payment details."
    );
    setTransactionId("");
    setPayerName("");
@@ -345,6 +449,62 @@ export default function Payment() {
 
  return (
   <div className="min-h-screen bg-black text-white">
+   {pendingPayment && (
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+     <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
+      <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-4">
+       Manual Payment
+      </p>
+
+      <h2 className="text-3xl font-bold mb-4">
+       {pendingPayment.method === "upi"
+        ? "UPI Payment"
+        : "PayPal Payment"}
+      </h2>
+
+      <p className="text-zinc-300 leading-relaxed mb-5">
+       {getManualPaymentMessage(
+        pendingPayment.plan,
+        pendingPayment.method
+       )}
+      </p>
+
+      {pendingPayment.method === "upi" && (
+       <div className="mb-5">
+        <p className="text-yellow-300 font-bold mb-3">
+         or scan the QR
+        </p>
+        <img
+         src={qrCodeUrl}
+         alt="UPI QR code"
+         className="w-full max-w-xs mx-auto rounded-lg border border-zinc-700 bg-white"
+        />
+       </div>
+      )}
+
+      <p className="text-zinc-500 text-sm mb-6">
+       For any trouble, mail us at {SUPPORT_EMAIL}.
+      </p>
+
+      <div className="grid gap-3">
+       <button
+        onClick={confirmPendingPayment}
+        className="bg-yellow-400 text-black p-4 rounded-lg font-bold"
+       >
+        OK
+       </button>
+
+       <button
+        onClick={() => setPendingPayment(null)}
+        className="bg-zinc-900 border border-zinc-800 p-4 rounded-lg font-bold"
+       >
+        Cancel
+       </button>
+      </div>
+     </div>
+    </div>
+   )}
+
    <div className="max-w-6xl mx-auto px-5 sm:px-6 py-8 sm:py-10">
     <button
      onClick={() => navigate("/multiplayer")}
@@ -391,7 +551,7 @@ export default function Payment() {
          UPI QR
         </p>
         <img
-         src="/upi-qr.jpeg"
+         src={qrCodeUrl}
          alt="UPI QR code for Vikas Dubey"
          className="w-full max-w-sm rounded-lg border border-zinc-700 bg-white"
         />
@@ -438,9 +598,12 @@ export default function Payment() {
         </label>
         <select
          value={paymentMethod}
-         onChange={(event) =>
-          setPaymentMethod(event.target.value)
-         }
+         onChange={(event) => {
+          setPaymentMethod(event.target.value);
+          setShowUpiQr(
+           event.target.value === "upi"
+          );
+         }}
          className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg"
         >
          <option value="paypal">PayPal</option>
@@ -593,7 +756,7 @@ export default function Payment() {
             : "border-zinc-700 text-white"
           }`}
          >
-          UPI
+          UPI - {plan.upiPrice}
          </button>
         </div>
 

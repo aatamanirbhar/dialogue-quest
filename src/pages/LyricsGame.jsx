@@ -1,15 +1,47 @@
 import React, {
  useEffect,
+ useRef,
  useState
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAccount, isPremiumPlus } from "../lib/account";
 import { supabase } from "../lib/supabase";
 
+const QUESTION_TIME = 30;
+
 const normalizeAnswer = (value) =>
  String(value || "")
   .toLowerCase()
   .replace(/[^a-z0-9]/g, "");
+
+const getQuestionOptions = (question) => {
+ const rawOptions = question?.options;
+
+ if (Array.isArray(rawOptions)) {
+  return rawOptions
+   .map((option) => String(option).trim())
+   .filter(Boolean);
+ }
+
+ if (typeof rawOptions === "string") {
+  try {
+   const parsed = JSON.parse(rawOptions);
+
+   if (Array.isArray(parsed)) {
+    return parsed
+     .map((option) => String(option).trim())
+     .filter(Boolean);
+   }
+  } catch {
+   return rawOptions
+    .split("|")
+    .map((option) => option.trim())
+    .filter(Boolean);
+  }
+ }
+
+ return [];
+};
 
 const getActiveLyrics = async () => {
  let response = await supabase
@@ -58,7 +90,6 @@ const getActiveLyrics = async () => {
 
 export default function LyricsGame() {
  const navigate = useNavigate();
- const [account, setAccount] = useState(null);
  const [questions, setQuestions] = useState([]);
  const [loading, setLoading] = useState(true);
  const [index, setIndex] = useState(0);
@@ -66,6 +97,11 @@ export default function LyricsGame() {
  const [feedback, setFeedback] = useState("");
  const [finished, setFinished] = useState(false);
  const [score, setScore] = useState(0);
+ const [timeLeft, setTimeLeft] =
+  useState(QUESTION_TIME);
+ const [locked, setLocked] = useState(false);
+ const lockedRef = useRef(false);
+ const advanceTimerRef = useRef(null);
 
  useEffect(() => {
   let active = true;
@@ -73,7 +109,6 @@ export default function LyricsGame() {
   const load = async () => {
    const nextAccount = await getAccount();
    if (!active) return;
-   setAccount(nextAccount);
 
    if (!isPremiumPlus(nextAccount)) {
     navigate("/categories");
@@ -104,29 +139,94 @@ export default function LyricsGame() {
   };
  }, [navigate]);
 
- const current = questions[index];
+ useEffect(() => {
+  return () => {
+   if (advanceTimerRef.current) {
+    window.clearTimeout(
+     advanceTimerRef.current
+    );
+   }
+  };
+ }, []);
 
- const submit = () => {
-  if (!current) return;
+ const current = questions[index];
+ const currentOptions =
+  getQuestionOptions(current);
+
+ const goNext = () => {
+  const next = index + 1;
+
+  setAnswer("");
+  setFeedback("");
+  setTimeLeft(QUESTION_TIME);
+  lockedRef.current = false;
+  setLocked(false);
+
+  if (next >= questions.length) {
+   setFinished(true);
+   return;
+  }
+
+  setIndex(next);
+ };
+
+ const submit = (
+  submittedAnswer = answer,
+  { timedOut = false } = {}
+ ) => {
+  if (!current || lockedRef.current) return;
+
+  const value = String(
+   submittedAnswer || ""
+  ).trim();
+
+  if (!timedOut && !value) return;
+
+  lockedRef.current = true;
+  setLocked(true);
 
   const correct =
-   normalizeAnswer(answer) ===
-   normalizeAnswer(current.answer);
+   !timedOut &&
+   normalizeAnswer(value) ===
+    normalizeAnswer(current.answer);
 
-  setFeedback(correct ? "Correct" : `Wrong. ${current.answer}`);
-  if (correct) setScore((value) => value + 1);
+  if (correct) {
+   setScore((scoreValue) => scoreValue + 1);
+  }
 
-  setTimeout(() => {
-   const next = index + 1;
-   setAnswer("");
-   if (next >= questions.length) {
-    setFinished(true);
-   } else {
-    setIndex(next);
-    setFeedback("");
-   }
-  }, 1000);
+  setFeedback(
+   timedOut
+    ? `Time's up. ${current.answer}`
+    : correct
+     ? "Correct"
+     : `Wrong. ${current.answer}`
+  );
+
+  advanceTimerRef.current =
+   window.setTimeout(goNext, 1200);
  };
+
+ useEffect(() => {
+  if (!current || finished || locked) return;
+
+  setTimeLeft(QUESTION_TIME);
+
+  const interval = window.setInterval(() => {
+   setTimeLeft((previous) => {
+    if (previous <= 1) {
+     window.clearInterval(interval);
+     submit("", { timedOut: true });
+     return 0;
+    }
+
+    return previous - 1;
+   });
+  }, 1000);
+
+  return () => {
+   window.clearInterval(interval);
+  };
+ }, [index, current?.id, finished, locked]);
 
  if (loading) {
   return (
@@ -183,56 +283,80 @@ export default function LyricsGame() {
  return (
   <div className="min-h-screen bg-black text-white p-6 flex items-center justify-center">
    <div className="w-full max-w-3xl bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8">
-    <div className="flex justify-between items-center mb-6">
-     <h1 className="text-2xl sm:text-3xl font-bold">
-      Complete the Lyrics
-     </h1>
-     <div className="text-yellow-300 font-bold">
-      {score} / {questions.length}
+    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+     <div>
+      <h1 className="text-2xl sm:text-3xl font-bold">
+       Complete the Lyrics
+      </h1>
+      <p className="text-zinc-400 mt-2">
+       Question {index + 1} / {questions.length}
+      </p>
+     </div>
+
+     <div className="flex gap-4 text-right">
+      <div>
+       <p className="text-zinc-500 text-sm">
+        Time
+       </p>
+       <p className="text-yellow-300 font-bold text-xl">
+        {timeLeft}s
+       </p>
+      </div>
+      <div>
+       <p className="text-zinc-500 text-sm">
+        Score
+       </p>
+       <p className="text-green-300 font-bold text-xl">
+        {score}
+       </p>
+      </div>
      </div>
     </div>
 
     <div className="bg-zinc-800 rounded-2xl p-6 mb-5">
      <p className="text-2xl leading-relaxed">
-      {current.prompt}
+      {current.prompt || current.dialogue}
      </p>
     </div>
 
-    {current.options?.length === 2 ? (
-     <div className="grid gap-3 mb-5">
-      {current.options.map((option) => (
+    {currentOptions.length > 0 ? (
+     <div className="grid sm:grid-cols-2 gap-3 mb-5">
+      {currentOptions.map((option) => (
        <button
         key={option}
-        onClick={() => {
-         setAnswer(option);
-         setTimeout(submit, 50);
-        }}
-        className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 text-left font-bold"
+        type="button"
+        onClick={() => submit(option)}
+        disabled={locked}
+        className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 text-left font-bold disabled:opacity-60"
        >
         {option}
        </button>
       ))}
      </div>
     ) : (
-     <input
-      value={answer}
-      onChange={(event) =>
-       setAnswer(event.target.value)
-      }
-      placeholder="Type the missing lyrics"
-      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-4 mb-5"
-      onKeyDown={(event) => {
-       if (event.key === "Enter") submit();
-      }}
-     />
-    )}
+     <>
+      <input
+       value={answer}
+       onChange={(event) =>
+        setAnswer(event.target.value)
+       }
+       placeholder="Type the missing lyrics"
+       disabled={locked}
+       className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-4 mb-5 disabled:opacity-60"
+       onKeyDown={(event) => {
+        if (event.key === "Enter") submit();
+       }}
+      />
 
-    <button
-     onClick={submit}
-     className="w-full bg-yellow-400 text-black py-4 rounded-xl font-bold"
-    >
-     Submit
-    </button>
+      <button
+       onClick={() => submit()}
+       disabled={locked}
+       className="w-full bg-yellow-400 text-black py-4 rounded-xl font-bold disabled:opacity-60"
+      >
+       Submit
+      </button>
+     </>
+    )}
 
     {feedback && (
      <p className="mt-4 text-zinc-300">

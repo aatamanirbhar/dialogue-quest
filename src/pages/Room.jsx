@@ -182,6 +182,21 @@ const mapLyricsQuestionToQuote = (question) => ({
   question.dialogue ||
   "Complete the missing lyrics",
  answer: question.answer,
+ options: Array.isArray(question.options)
+  ? question.options
+  : typeof question.options === "string"
+   ? (() => {
+      try {
+       const parsed = JSON.parse(question.options);
+       return Array.isArray(parsed) ? parsed : [];
+      } catch {
+       return question.options
+        .split("|")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      }
+     })()
+   : [],
  trivia_fact:
   question.trivia_fact ||
   `Complete the lyrics answer: ${question.answer}`,
@@ -192,21 +207,69 @@ const mapLyricsQuestionToQuote = (question) => ({
 const fetchActiveLyricsQuestions = async () => {
  let response = await supabase
   .from("lyrics_questions")
-  .select("id, category")
-  .eq("is_active", true);
+  .select("*")
+  .eq("is_active", true)
+  .order("sort_order", {
+   ascending: true
+  });
 
  if (
   response.error &&
-  /is_active|schema cache|column/i.test(
+  /is_active|sort_order|schema cache|column/i.test(
    response.error.message || ""
   )
  ) {
   response = await supabase
    .from("lyrics_questions")
-   .select("id, category");
+   .select("*");
+ }
+
+ if (!response.error) {
+  response = {
+   ...response,
+   data: (response.data || [])
+    .filter(
+     (item) =>
+      item.is_active !== false &&
+      item.active !== false
+    )
+    .sort(
+     (a, b) =>
+      Number(a.sort_order || 0) -
+      Number(b.sort_order || 0)
+    )
+  };
  }
 
  return response;
+};
+
+const getQuestionOptions = (question) => {
+ const rawOptions = question?.options;
+
+ if (Array.isArray(rawOptions)) {
+  return rawOptions
+   .map((option) => String(option).trim())
+   .filter(Boolean);
+ }
+
+ if (typeof rawOptions === "string") {
+  try {
+   const parsed = JSON.parse(rawOptions);
+   if (Array.isArray(parsed)) {
+    return parsed
+     .map((option) => String(option).trim())
+     .filter(Boolean);
+   }
+  } catch {
+   return rawOptions
+    .split("|")
+    .map((option) => option.trim())
+    .filter(Boolean);
+  }
+ }
+
+ return [];
 };
 
 const getWinnerText = (players) => {
@@ -1227,17 +1290,23 @@ useEffect(() => {
   });
  };
 
- const submitAnswer = async () => {
+ const submitAnswer = async (
+  answerOverride = message
+ ) => {
+  const submittedAnswer = String(
+   answerOverride || ""
+  ).trim();
+
   if (
    !quote ||
-   !message.trim() ||
+   !submittedAnswer ||
    room?.game_finished
   ) {
    return;
   }
 
   const isCorrect =
-   normalizeAnswer(message) ===
+   normalizeAnswer(submittedAnswer) ===
    normalizeAnswer(quote.answer);
 
   const duration =
@@ -1274,7 +1343,7 @@ useEffect(() => {
       isCorrect,
      last_answer_bonus: fastBonus,
      last_score_change: scoreChange,
-     last_answer_text: message.trim(),
+     last_answer_text: submittedAnswer,
      score: nextScore
     })
     .eq("player_id", playerId)
@@ -1385,6 +1454,11 @@ useEffect(() => {
    </div>
   );
  }
+
+ const quoteOptions =
+  isLyricsCategory(room.category)
+   ? getQuestionOptions(quote)
+   : [];
 
  return (
   <div className="min-h-screen bg-black text-white p-6 lg:p-10">
@@ -1684,33 +1758,55 @@ useEffect(() => {
           : `"${quote.dialogue}"`}
         </p>
 
-        <input
-         value={message}
-         onChange={(event) =>
-          setMessage(event.target.value)
-         }
-         onKeyDown={(event) => {
-          if (event.key === "Enter") {
-           submitAnswer();
+        {quoteOptions.length > 0 ? (
+         <div className="grid sm:grid-cols-2 gap-3 mb-5">
+          {quoteOptions.map((option) => (
+           <button
+            key={option}
+            type="button"
+            onClick={() =>
+             submitAnswer(option)
+            }
+            disabled={me?.answered_current}
+            className="bg-zinc-800 border border-zinc-700 p-5 rounded-lg text-left font-bold disabled:opacity-60"
+           >
+            {option}
+           </button>
+          ))}
+         </div>
+        ) : (
+         <input
+          value={message}
+          onChange={(event) =>
+           setMessage(event.target.value)
           }
-         }}
-         placeholder={
-          isLyricsCategory(room.category)
-           ? "Type the missing lyrics"
-           : "Guess movie or TV series"
-         }
-         disabled={me?.answered_current}
-         className="w-full bg-zinc-800 border border-zinc-700 p-5 rounded-lg mb-5 disabled:opacity-60"
-        />
+          onKeyDown={(event) => {
+           if (event.key === "Enter") {
+            submitAnswer();
+           }
+          }}
+          placeholder={
+           isLyricsCategory(room.category)
+            ? "Type the missing lyrics"
+            : "Guess movie or TV series"
+          }
+          disabled={me?.answered_current}
+          className="w-full bg-zinc-800 border border-zinc-700 p-5 rounded-lg mb-5 disabled:opacity-60"
+         />
+        )}
 
         <div className="flex flex-wrap gap-3">
          <button
-          onClick={submitAnswer}
-          disabled={me?.answered_current}
-          className="bg-yellow-400 disabled:bg-zinc-700 disabled:text-zinc-400 text-black px-8 py-4 rounded-lg font-bold"
-         >
-          Submit Answer
-         </button>
+          onClick={() => submitAnswer()}
+         disabled={me?.answered_current}
+          className={`bg-yellow-400 disabled:bg-zinc-700 disabled:text-zinc-400 text-black px-8 py-4 rounded-lg font-bold ${
+           quoteOptions.length > 0
+            ? "hidden"
+            : ""
+          }`}
+        >
+         Submit Answer
+        </button>
 
          {canUseQuestionControls && (
           <button
