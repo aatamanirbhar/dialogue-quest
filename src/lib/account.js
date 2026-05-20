@@ -462,7 +462,7 @@ export async function requestPasswordReset(email) {
   cleanEmail,
   {
    redirectTo:
-    `${window.location.origin}/reset-password`
+    `https://project-000b0.vercel.app/reset-password`
   }
  );
 
