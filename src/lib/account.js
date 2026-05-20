@@ -5,6 +5,7 @@ const HISTORY_TABLE = "match_history";
 const LEGACY_HISTORY_TABLE = "play_history";
 const ACCOUNT_SYNC_KEY = "dq-account-sync";
 const LOCAL_HISTORY_KEY = "dq-match-history";
+const HISTORY_DUPLICATE_WINDOW_MS = 60 * 1000;
 
 export const PLANS = {
  FREE: "free",
@@ -81,6 +82,116 @@ const notifyAccountChange = (type = "account") => {
 const getLocalHistoryKey = (userId) =>
  `${LOCAL_HISTORY_KEY}:${userId}`;
 
+const createHistoryKey = () => {
+ if (
+  typeof crypto !== "undefined" &&
+  crypto.randomUUID
+ ) {
+  return crypto.randomUUID();
+ }
+
+ return `history-${Date.now()}-${Math.random()
+  .toString(36)
+  .slice(2)}`;
+};
+
+const getHistoryMetadata = (entry) => {
+ const metadata = entry?.metadata;
+
+ return metadata &&
+  typeof metadata === "object" &&
+  !Array.isArray(metadata)
+  ? metadata
+  : {};
+};
+
+const getHistoryKey = (entry) => {
+ const metadata = getHistoryMetadata(entry);
+
+ return String(
+  metadata.history_key ||
+   entry?.history_key ||
+   ""
+ );
+};
+
+const getHistorySignature = (entry) => {
+ const metadata = getHistoryMetadata(entry);
+ const mixCategories = Array.isArray(
+  metadata.mixCategories
+ )
+  ? [...metadata.mixCategories]
+     .map((value) =>
+      String(value || "")
+       .trim()
+       .toLowerCase()
+     )
+     .filter(Boolean)
+     .sort()
+     .join(",")
+  : "";
+ const players = Array.isArray(metadata.players)
+  ? [...metadata.players]
+     .map(
+      (player) =>
+       `${String(player?.name || "")
+        .trim()
+        .toLowerCase()}:${Number(
+        player?.score || 0
+       )}`
+     )
+     .sort()
+     .join("|")
+  : "";
+
+ return [
+  entry?.mode || "",
+  entry?.category || "",
+  entry?.room_code || "",
+  entry?.result || "",
+  Number(entry?.score || 0),
+  Number(entry?.total_questions || 0),
+  Number(entry?.opponent_count || 0),
+  entry?.winner_name || "",
+  metadata.playerName || "",
+  mixCategories,
+  players
+ ].join("::");
+};
+
+const getHistoryTime = (entry) => {
+ const time = new Date(
+  entry?.created_at || 0
+ ).getTime();
+
+ return Number.isNaN(time) ? 0 : time;
+};
+
+const isDuplicateHistoryEntry = (
+ existing,
+ next
+) => {
+ const existingKey = getHistoryKey(existing);
+ const nextKey = getHistoryKey(next);
+
+ if (existingKey && nextKey) {
+  return existingKey === nextKey;
+ }
+
+ const sameSignature =
+  getHistorySignature(existing) ===
+  getHistorySignature(next);
+
+ if (!sameSignature) return false;
+
+ return (
+  Math.abs(
+   getHistoryTime(existing) -
+    getHistoryTime(next)
+  ) <= HISTORY_DUPLICATE_WINDOW_MS
+ );
+};
+
 const readLocalHistory = (userId) => {
  if (!userId) return [];
 
@@ -101,7 +212,7 @@ const writeLocalHistory = (
  entry,
  limit = 30
 ) => {
- if (!userId || !entry) return [];
+  if (!userId || !entry) return [];
 
  const nextEntry = {
   ...entry,
@@ -115,12 +226,11 @@ const writeLocalHistory = (
    new Date().toISOString(),
   local_only: !entry.id
  };
- const nextHistory = [
-  nextEntry,
-  ...readLocalHistory(userId).filter(
-   (item) => item.id !== nextEntry.id
-  )
- ].slice(0, limit);
+ const nextHistory = mergeHistory(
+  [nextEntry],
+  readLocalHistory(userId),
+  limit
+ );
 
  try {
   window.localStorage.setItem(
@@ -139,31 +249,48 @@ const mergeHistory = (
  localHistory = [],
  limit = 30
 ) => {
- const seen = new Set();
-
- return [...remoteHistory, ...localHistory]
+ const merged = [];
+ const sorted = [...remoteHistory, ...localHistory]
   .filter(Boolean)
-  .sort(
-   (a, b) =>
-    new Date(b.created_at || 0).getTime() -
-    new Date(a.created_at || 0).getTime()
-  )
-  .filter((item) => {
-   const key =
-    item.id ||
-    [
-     item.mode,
-     item.category,
-     item.room_code,
-     item.result,
-     item.created_at
-    ].join(":");
+  .sort((a, b) => {
+   const timeDiff =
+    getHistoryTime(b) - getHistoryTime(a);
 
-   if (seen.has(key)) return false;
-   seen.add(key);
-   return true;
-  })
-  .slice(0, limit);
+   if (timeDiff !== 0) return timeDiff;
+
+   const aLocal = Boolean(a.local_only);
+   const bLocal = Boolean(b.local_only);
+
+   if (aLocal !== bLocal) {
+    return aLocal ? 1 : -1;
+   }
+
+   return 0;
+  });
+
+ for (const item of sorted) {
+  const duplicateIndex = merged.findIndex(
+   (existing) =>
+    isDuplicateHistoryEntry(existing, item)
+  );
+
+  if (duplicateIndex >= 0) {
+   const existing = merged[duplicateIndex];
+
+   if (
+    existing.local_only &&
+    !item.local_only
+   ) {
+    merged[duplicateIndex] = item;
+   }
+
+   continue;
+  }
+
+  merged.push(item);
+ }
+
+ return merged.slice(0, limit);
 };
 
 const mapProfile = (profile, user) => ({
@@ -608,6 +735,10 @@ export async function recordPlayHistory(entry) {
 
  if (!user) return null;
 
+ const historyKey = createHistoryKey();
+ const entryMetadata = getHistoryMetadata(
+  entry
+ );
  const payload = {
   user_id: user.id,
   mode: entry.mode,
@@ -620,7 +751,10 @@ export async function recordPlayHistory(entry) {
   opponent_count:
    Number(entry.opponentCount || 0),
   winner_name: entry.winnerName || null,
-  metadata: entry.metadata || {}
+  metadata: {
+   ...entryMetadata,
+   history_key: historyKey
+  }
  };
  const localEntry = writeLocalHistory(
   user.id,

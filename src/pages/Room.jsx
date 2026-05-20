@@ -1272,8 +1272,14 @@ useEffect(() => {
       nextIndex
      )
      .maybeSingle();
+   const nextQuestionId =
+    nextRoomQuestion?.quote_id ||
+    (await getFallbackQuestionId(
+     lockedRoom,
+     nextIndex
+    ));
 
-   if (!nextRoomQuestion) {
+   if (!nextQuestionId) {
     await finishGame(lockedRoom);
     return;
    }
@@ -1298,7 +1304,7 @@ useEffect(() => {
     .update({
      current_question: nextIndex,
      current_quote_id:
-     nextRoomQuestion.quote_id,
+      nextQuestionId,
      question_started_at:
       toSupabaseTime(startedAt),
      trivia_active: false,
