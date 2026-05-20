@@ -462,7 +462,7 @@ export async function requestPasswordReset(email) {
   cleanEmail,
   {
    redirectTo:
-    `${window.location.origin}/multiplayer?auth=recovery`
+    `${window.location.origin}/reset-password`
   }
  );
 
