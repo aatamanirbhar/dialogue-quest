@@ -23,8 +23,7 @@ const categories = [
  "tvshows",
  "mix",
  "bollywood",
- "anime",
- "trivia"
+ "anime"
 ];
 
 const mixCategoryOptions = [
