@@ -367,7 +367,7 @@ export default function Payment() {
   if (!response.ok) {
    throw new Error(
     payload.message ||
-     "Payment details were saved, but Telegram notification failed."
+     "Payment details were saved, but Dialogue Quest did not receive a notification about this transaction. Whatsapp your details on +918949820403."
    );
   }
 
@@ -434,8 +434,8 @@ export default function Payment() {
    const telegramSent =
     notification?.telegram?.sent === true;
    const telegramMessage = telegramSent
-    ? "Telegram notification sent successfully."
-    : `Telegram notification was not confirmed: ${
+    ? "Dialogue Quest Team received a notification about your detials. Your plan will be active in less than 24 hours."
+    : `Dialogue Quest Team did not receive a notification about your detials. Whatsapp your details on +918949720403.: ${
        notification?.telegram?.reason ||
        "not configured"
       }`;
@@ -548,7 +548,7 @@ export default function Payment() {
        }`}
       >
        <p className="text-xs uppercase tracking-[0.2em] mb-2">
-        Telegram
+        Dialogue Quest 
        </p>
        <p>{successModal.telegramMessage}</p>
       </div>
