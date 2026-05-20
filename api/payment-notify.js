@@ -67,9 +67,9 @@ const sendTelegramNotification = async (
  text
 ) => {
  const botToken =
-  process.env.TELEGRAM_BOT_TOKEN;
+  (process.env.TELEGRAM_BOT_TOKEN || "").trim();
  const chatId =
-  process.env.TELEGRAM_CHAT_ID;
+  (process.env.TELEGRAM_CHAT_ID || "").trim();
 
  if (!botToken || !chatId) {
   return {
@@ -93,10 +93,21 @@ const sendTelegramNotification = async (
  );
 
  if (!telegramResponse.ok) {
-  const payload =
-   await telegramResponse.json();
+  const responseText =
+   await telegramResponse.text();
+  let payload = {};
+
+  try {
+   payload = responseText
+    ? JSON.parse(responseText)
+    : {};
+  } catch {
+   payload = {};
+  }
+
   throw new Error(
    payload.description ||
+    responseText ||
     "Telegram notification failed."
   );
  }

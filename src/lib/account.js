@@ -4,6 +4,7 @@ const TRIAL_LIMIT = 2;
 const HISTORY_TABLE = "match_history";
 const LEGACY_HISTORY_TABLE = "play_history";
 const ACCOUNT_SYNC_KEY = "dq-account-sync";
+const LOCAL_HISTORY_KEY = "dq-match-history";
 
 export const PLANS = {
  FREE: "free",
@@ -75,6 +76,94 @@ const notifyAccountChange = (type = "account") => {
  } catch (error) {
   console.error(error);
  }
+};
+
+const getLocalHistoryKey = (userId) =>
+ `${LOCAL_HISTORY_KEY}:${userId}`;
+
+const readLocalHistory = (userId) => {
+ if (!userId) return [];
+
+ try {
+  const raw = window.localStorage.getItem(
+   getLocalHistoryKey(userId)
+  );
+  const parsed = raw ? JSON.parse(raw) : [];
+
+  return Array.isArray(parsed) ? parsed : [];
+ } catch {
+  return [];
+ }
+};
+
+const writeLocalHistory = (
+ userId,
+ entry,
+ limit = 30
+) => {
+ if (!userId || !entry) return [];
+
+ const nextEntry = {
+  ...entry,
+  id:
+   entry.id ||
+   `local-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`,
+  created_at:
+   entry.created_at ||
+   new Date().toISOString(),
+  local_only: !entry.id
+ };
+ const nextHistory = [
+  nextEntry,
+  ...readLocalHistory(userId).filter(
+   (item) => item.id !== nextEntry.id
+  )
+ ].slice(0, limit);
+
+ try {
+  window.localStorage.setItem(
+   getLocalHistoryKey(userId),
+   JSON.stringify(nextHistory)
+  );
+ } catch {
+  return nextHistory;
+ }
+
+ return nextHistory;
+};
+
+const mergeHistory = (
+ remoteHistory = [],
+ localHistory = [],
+ limit = 30
+) => {
+ const seen = new Set();
+
+ return [...remoteHistory, ...localHistory]
+  .filter(Boolean)
+  .sort(
+   (a, b) =>
+    new Date(b.created_at || 0).getTime() -
+    new Date(a.created_at || 0).getTime()
+  )
+  .filter((item) => {
+   const key =
+    item.id ||
+    [
+     item.mode,
+     item.category,
+     item.room_code,
+     item.result,
+     item.created_at
+    ].join(":");
+
+   if (seen.has(key)) return false;
+   seen.add(key);
+   return true;
+  })
+  .slice(0, limit);
 };
 
 const mapProfile = (profile, user) => ({
@@ -533,6 +622,10 @@ export async function recordPlayHistory(entry) {
   winner_name: entry.winnerName || null,
   metadata: entry.metadata || {}
  };
+ const localEntry = writeLocalHistory(
+  user.id,
+  payload
+ )?.[0];
 
  const writeHistory = async (table) =>
   supabase
@@ -559,8 +652,10 @@ export async function recordPlayHistory(entry) {
 
  if (error) {
   console.error(error);
-  return null;
+  return localEntry || payload;
  }
+
+ writeLocalHistory(user.id, data);
 
  return data;
 }
@@ -570,6 +665,10 @@ export async function getPlayHistory(limit = 30) {
  const user = session?.user;
 
  if (!user) return [];
+
+ const localHistory = readLocalHistory(
+  user.id
+ );
 
  const readHistory = async (table) =>
   supabase
@@ -601,10 +700,14 @@ export async function getPlayHistory(limit = 30) {
 
  if (error) {
   console.error(error);
-  return [];
+  return localHistory.slice(0, limit);
  }
 
- return data || [];
+ return mergeHistory(
+  data || [],
+  localHistory,
+  limit
+ );
 }
 
 export async function useTrialCredit(account) {

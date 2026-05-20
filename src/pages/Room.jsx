@@ -204,6 +204,33 @@ const mapLyricsQuestionToQuote = (question) => ({
  source_table: "lyrics_questions"
 });
 
+const loadQuestionRecord = async (
+ category,
+ questionId
+) => {
+ if (!questionId) return null;
+
+ if (isLyricsCategory(category)) {
+  const { data } = await supabase
+   .from("lyrics_questions")
+   .select("*")
+   .eq("id", questionId)
+   .maybeSingle();
+
+  return data
+   ? mapLyricsQuestionToQuote(data)
+   : null;
+ }
+
+ const { data } = await supabase
+  .from("quotes")
+  .select("*")
+  .eq("id", questionId)
+  .maybeSingle();
+
+ return data || null;
+};
+
 const fetchActiveLyricsQuestions = async () => {
  let response = await supabase
   .from("lyrics_questions")
@@ -242,6 +269,25 @@ const fetchActiveLyricsQuestions = async () => {
  }
 
  return response;
+};
+
+const getFallbackQuestionId = async (
+ sourceRoom,
+ nextIndex
+) => {
+ if (!isLyricsCategory(sourceRoom?.category)) {
+  return null;
+ }
+
+ const { data, error } =
+  await fetchActiveLyricsQuestions();
+
+ if (error || !data?.length) {
+  if (error) console.error(error);
+  return null;
+ }
+
+ return data[nextIndex % data.length]?.id || null;
 };
 
 const getQuestionOptions = (question) => {
@@ -559,6 +605,17 @@ export default function Room() {
    return;
   }
 
+  const directQuestion =
+   await loadQuestionRecord(
+    room.category,
+    room.current_quote_id
+   );
+
+  if (directQuestion) {
+   setQuote(directQuestion);
+   return;
+  }
+
   const { data: roomQuestion } =
    await supabase
     .from("room_questions")
@@ -575,30 +632,12 @@ export default function Room() {
    return;
   }
 
-  if (isLyricsCategory(room.category)) {
-   const { data: lyricData } =
-    await supabase
-     .from("lyrics_questions")
-     .select("*")
-     .eq("id", roomQuestion.quote_id)
-     .maybeSingle();
-
-   setQuote(
-    lyricData
-     ? mapLyricsQuestionToQuote(lyricData)
-     : null
-   );
-   return;
-  }
-
-  const { data: quoteData } =
-   await supabase
-    .from("quotes")
-    .select("*")
-    .eq("id", roomQuestion.quote_id)
-    .maybeSingle();
-
-  setQuote(quoteData || null);
+  setQuote(
+   await loadQuestionRecord(
+    room.category,
+    roomQuestion.quote_id
+   )
+  );
  };
 
  const generateQuestions = async (sourceRoom) => {
@@ -649,9 +688,17 @@ export default function Room() {
      question_order: index
     }));
 
-  await supabase
+  const { error: insertError } =
+   await supabase
    .from("room_questions")
    .insert(inserts);
+
+  if (insertError) {
+   console.error(
+    "Failed to store lyrics room questions",
+    insertError
+   );
+  }
 
   return inserts[0]?.quote_id || null;
  }
@@ -724,9 +771,17 @@ export default function Room() {
      question_order: index
     }));
 
-  await supabase
+  const { error: insertError } =
+   await supabase
    .from("room_questions")
    .insert(inserts);
+
+  if (insertError) {
+   console.error(
+    "Failed to store room questions",
+    insertError
+   );
+  }
 
   return inserts[0]?.quote_id || null;
  };
@@ -784,6 +839,7 @@ export default function Room() {
  }, [
   room?.current_question,
   room?.current_quote_id,
+  room?.category,
   room?.game_started,
   room?.game_finished
  ]);

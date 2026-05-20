@@ -693,6 +693,10 @@ export default function MultiplayerLobby() {
   createRoom();
  };
 
+ const goHome = () => {
+  navigate("/");
+ };
+
  const createRoom = async () => {
   try {
    if (!account) {
@@ -919,7 +923,7 @@ export default function MultiplayerLobby() {
  };
 
  return (
-  <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 sm:p-6">
+  <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4 sm:p-6">
    {gateNotice && (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
@@ -953,6 +957,15 @@ export default function MultiplayerLobby() {
      </div>
     </div>
    )}
+
+   <div className="w-full max-w-6xl mb-4 sm:mb-6">
+    <button
+     onClick={goHome}
+     className="bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-lg font-bold"
+    >
+     Home
+    </button>
+   </div>
 
    <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-5 sm:gap-6 w-full max-w-6xl">
 
@@ -1400,44 +1413,35 @@ export default function MultiplayerLobby() {
         )}
        </form>
 
-       <div>
-        <h2 className="text-2xl font-bold mb-3">
-         Match History
-        </h2>
-        {playHistory.length ? (
-         <div className="grid gap-3 max-h-72 overflow-auto pr-1">
-          {playHistory.map((item) => (
-           <div
-            key={item.id}
-            className="bg-zinc-900 border border-zinc-800 rounded-lg p-4"
-           >
-            <div className="flex justify-between gap-3">
-             <span className="capitalize font-bold">
-              {item.mode} {item.category}
-             </span>
-             <span className="text-yellow-300 capitalize">
-              {item.result}
-             </span>
-            </div>
-            <p className="text-zinc-400 text-sm mt-2">
-             Score {item.score} /{" "}
-             {item.total_questions || "-"}
-             {item.opponent_count !== undefined
-              ? ` - ${item.opponent_count} opponents`
-              : ""}
-             {item.room_code
-              ? ` - Room ${item.room_code}`
-              : ""}
-            </p>
-          </div>
-         ))}
+       {playHistory.length > 0 && (
+        <div className="grid gap-3 max-h-72 overflow-auto pr-1">
+         {playHistory.map((item) => (
+          <div
+           key={item.id}
+           className="bg-zinc-900 border border-zinc-800 rounded-lg p-4"
+          >
+           <div className="flex justify-between gap-3">
+            <span className="capitalize font-bold">
+             {item.mode} {item.category}
+            </span>
+            <span className="text-yellow-300 capitalize">
+             {item.result}
+            </span>
+           </div>
+           <p className="text-zinc-400 text-sm mt-2">
+            Score {item.score} /{" "}
+            {item.total_questions || "-"}
+            {item.opponent_count !== undefined
+             ? ` - ${item.opponent_count} opponents`
+             : ""}
+            {item.room_code
+             ? ` - Room ${item.room_code}`
+             : ""}
+           </p>
          </div>
-        ) : (
-         <p className="text-zinc-400">
-          Your played matches will appear here after the next solo or multiplayer finish.
-         </p>
-        )}
-       </div>
+        ))}
+        </div>
+       )}
       </div>
      )}
 

@@ -123,6 +123,8 @@ export default function Payment() {
   useState(null);
  const [proofPreview, setProofPreview] =
   useState("");
+ const [successModal, setSuccessModal] =
+  useState(null);
 
  useEffect(() => {
   let active = true;
@@ -142,6 +144,14 @@ export default function Payment() {
    active = false;
   };
  }, []);
+
+ useEffect(() => {
+  return () => {
+   if (proofPreview?.startsWith("blob:")) {
+    URL.revokeObjectURL(proofPreview);
+   }
+  };
+ }, [proofPreview]);
 
  const getManualPaymentMessage = (
   plan,
@@ -417,20 +427,41 @@ export default function Payment() {
     notification?.telegram?.sent === false
      ? `Telegram notification did not confirm: ${
         notification.telegram.reason ||
-        "not configured"
+       "not configured"
        }`
      : ""
    ].filter(Boolean);
+   const telegramSent =
+    notification?.telegram?.sent === true;
+   const telegramMessage = telegramSent
+    ? "Telegram notification sent successfully."
+    : `Telegram notification was not confirmed: ${
+       notification?.telegram?.reason ||
+       "not configured"
+      }`;
+   const successMessage = [
+    "Payment details submitted and sent for review. Hang tight while we confirm your payment details.",
+    ...warnings
+   ]
+    .filter(Boolean)
+    .join(" ");
 
-   setPaymentMessage(
-    [
-     "Payment details submitted and sent for review. Hang tight while we confirm your payment details.",
-     ...warnings
-    ].join(" ")
-   );
-   window.alert(
-    "Payment details submitted and sent for review. Hang tight while we confirm your payment details."
-   );
+   setPaymentMessage(successMessage);
+   setSuccessModal({
+    planName: selectedPlan.name,
+    paymentMethod,
+    transactionId: transactionId.trim(),
+    submissionId,
+    proofStatus: proofUploadWarning
+     ? "Proof upload had a warning"
+     : proofUrl
+      ? "Proof uploaded"
+      : "No proof uploaded",
+    telegramSent,
+    telegramMessage,
+    warnings,
+    summary: successMessage
+   });
    setTransactionId("");
    setPayerName("");
    setContact("");
@@ -449,6 +480,111 @@ export default function Payment() {
 
  return (
   <div className="min-h-screen bg-black text-white">
+   {successModal && (
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+     <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-zinc-950 border border-emerald-500/20 rounded-3xl p-6 sm:p-8 shadow-2xl">
+      <div className="flex items-center gap-4 mb-6">
+       <div className="h-14 w-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-2xl font-black text-emerald-300">
+        OK
+       </div>
+
+       <div>
+        <p className="text-emerald-300 uppercase tracking-[0.25em] text-xs mb-1">
+         Saved for review
+        </p>
+        <h2 className="text-3xl font-bold">
+         Payment details saved
+        </h2>
+       </div>
+      </div>
+
+      <p className="text-zinc-300 leading-relaxed mb-6">
+       {successModal.summary}
+      </p>
+
+      <div className="grid sm:grid-cols-2 gap-3 mb-5">
+       <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+         Plan
+        </p>
+        <p className="font-bold">
+         {successModal.planName}
+        </p>
+       </div>
+
+       <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+         Payment method
+        </p>
+        <p className="font-bold capitalize">
+         {successModal.paymentMethod}
+        </p>
+       </div>
+
+       <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+         Transaction ID
+        </p>
+        <p className="font-bold break-all">
+         {successModal.transactionId}
+        </p>
+       </div>
+
+       <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+         Submission ID
+        </p>
+        <p className="font-bold break-all">
+         {successModal.submissionId}
+        </p>
+       </div>
+      </div>
+
+      <div
+       className={`rounded-2xl border p-4 mb-5 ${
+        successModal.telegramSent
+         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+         : "border-amber-500/30 bg-amber-500/10 text-amber-100"
+       }`}
+      >
+       <p className="text-xs uppercase tracking-[0.2em] mb-2">
+        Telegram
+       </p>
+       <p>{successModal.telegramMessage}</p>
+      </div>
+
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 mb-5">
+       <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+        Proof status
+       </p>
+       <p className="font-bold">
+        {successModal.proofStatus}
+       </p>
+      </div>
+
+      {successModal.warnings.length > 0 && (
+       <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 mb-5">
+        <p className="text-zinc-500 text-xs uppercase tracking-[0.2em] mb-2">
+         Review notes
+        </p>
+        <div className="grid gap-2 text-sm text-zinc-300">
+         {successModal.warnings.map((warning) => (
+          <p key={warning}>{warning}</p>
+         ))}
+        </div>
+       </div>
+      )}
+
+      <button
+       onClick={() => setSuccessModal(null)}
+       className="w-full bg-yellow-400 text-black p-4 rounded-xl font-bold"
+      >
+       Done
+      </button>
+     </div>
+    </div>
+   )}
+
    {pendingPayment && (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
