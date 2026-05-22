@@ -53,10 +53,6 @@ const mixCategoryOptions = [
   {
   value: "anime",
   label: "Anime"
- },
- {
-  value: "trivia",
-  label: "Trivia"
  }
 ];
 
