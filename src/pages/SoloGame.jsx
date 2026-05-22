@@ -18,6 +18,7 @@ import {
  getInsight,
  getRandomCompliment
 } from "../lib/playerStats";
+import { playSoundEffect } from "../lib/audio";
 
 const QUESTION_TIME = 30;
 const DEFAULT_MIX_CATEGORIES = [
@@ -257,9 +258,10 @@ export default function SoloGame() {
   return () => clearInterval(interval);
  }, [currentIndex, quotes.length]);
 
- function handleTimeout() {
+function handleTimeout() {
   setShowResult(true);
   setIsCorrect(false);
+  playSoundEffect("incorrect");
 
   setTimeout(() => {
    nextQuestion();
@@ -275,6 +277,9 @@ export default function SoloGame() {
 
   setIsCorrect(correct);
   setShowResult(true);
+  playSoundEffect(
+   correct ? "correct" : "incorrect"
+  );
 
   if (correct) {
    setScore((prev) => prev + 1);

@@ -4,6 +4,10 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
 import { getAccount } from "../lib/account";
+import {
+ playSoundEffect,
+ useAudioPreference
+} from "../lib/audio";
 
 const insertRoomPlayer = async (payload) => {
  const { error } = await supabase
@@ -31,10 +35,22 @@ const insertRoomPlayer = async (payload) => {
 
 export default function Home(){
  const navigate = useNavigate();
+ const [audioEnabled, setAudioEnabled] =
+  useAudioPreference();
  const [roomCode, setRoomCode] = useState("");
  const [username, setUsername] = useState("");
  const [joining, setJoining] = useState(false);
  const [account, setAccount] = useState(null);
+
+ const toggleAudio = () => {
+  const nextEnabled = !audioEnabled;
+
+  setAudioEnabled(nextEnabled);
+
+  if (nextEnabled) {
+   playSoundEffect("start");
+  }
+ };
 
  useEffect(() => {
   let active = true;
@@ -139,10 +155,37 @@ export default function Home(){
     account?.id ? `?account=${account.id}` : ""
    }`
   );
+  playSoundEffect("roomJoin");
  };
 
  return (
   <div className="min-h-screen flex flex-col items-center justify-center text-center px-4 py-8">
+   <button
+    type="button"
+    onClick={toggleAudio}
+    aria-pressed={audioEnabled}
+    className="fixed top-4 right-4 z-20 flex items-center gap-3 rounded-full border border-zinc-700 bg-zinc-950/90 px-4 py-3 text-sm font-bold text-white shadow-xl"
+   >
+    <span
+     className={`relative h-5 w-10 rounded-full transition ${
+      audioEnabled
+       ? "bg-yellow-400"
+       : "bg-zinc-700"
+     }`}
+    >
+     <span
+      className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition ${
+       audioEnabled
+        ? "translate-x-5"
+        : "translate-x-0"
+      }`}
+     />
+    </span>
+    <span>
+     Music {audioEnabled ? "On" : "Off"}
+    </span>
+   </button>
+
    <h1 className="text-5xl sm:text-7xl font-bold mb-6">Dialogue Quest</h1>
 
    <p className="text-gray-400 max-w-xl mb-8">

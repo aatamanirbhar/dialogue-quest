@@ -23,6 +23,7 @@ import {
 import {
  getRandomCompliment
 } from "../lib/playerStats";
+import { playSoundEffect } from "../lib/audio";
 
 const DEFAULT_QUESTION_DURATION = 15;
 const TRIVIA_DURATION = 5000;
@@ -434,32 +435,11 @@ export default function Room() {
  };
 
  const playArenaSound = (kind = "applause") => {
-  const AudioContextCtor =
-   window.AudioContext ||
-   window.webkitAudioContext;
-  if (!AudioContextCtor) return;
-
-  const context = new AudioContextCtor();
-  const gain = context.createGain();
-  gain.gain.value = 0.0001;
-  gain.connect(context.destination);
-
-  const tone =
-   kind === "applause" ? 880 : 520;
-  const oscillator = context.createOscillator();
-  oscillator.type = "square";
-  oscillator.frequency.value = tone;
-  oscillator.connect(gain);
-  oscillator.start();
-  gain.gain.exponentialRampToValueAtTime(
-   0.02,
-   context.currentTime + 0.02
+  playSoundEffect(
+   kind === "applause"
+    ? "correct"
+    : "incorrect"
   );
-  gain.gain.exponentialRampToValueAtTime(
-   0.0001,
-   context.currentTime + 0.3
-  );
-  oscillator.stop(context.currentTime + 0.32);
  };
 
  const fetchRoom = async () => {
@@ -553,7 +533,9 @@ export default function Room() {
         : ""
       }.`
      );
-     playArenaSound("applause");
+     if (player.player_id !== playerId) {
+      playArenaSound("applause");
+     }
      return;
     }
 
@@ -562,7 +544,9 @@ export default function Room() {
       player.last_answer_text || "unknown"
      }" - incorrect -${WRONG_PENALTY_POINTS}.`
     );
-    playArenaSound("popcorn");
+    if (player.player_id !== playerId) {
+     playArenaSound("popcorn");
+    }
    });
   }
 
@@ -972,7 +956,10 @@ useEffect(() => {
    .select()
    .single();
 
-  if (data) setRoom(data);
+  if (data) {
+   setRoom(data);
+   playSoundEffect("start");
+  }
  };
 
   const remainingTime =
@@ -1419,11 +1406,15 @@ useEffect(() => {
    return;
   }
 
-  playArenaSound(isCorrect ? "applause" : "popcorn");
+  playArenaSound(
+   isCorrect ? "applause" : "popcorn"
+  );
   setMessage("");
  };
 
  const leaveRoom = async () => {
+  playSoundEffect("leave");
+
   if (isHost) {
    await deleteRoom();
    navigate("/multiplayer");
@@ -1458,6 +1449,7 @@ useEffect(() => {
  };
 
  const closeRoom = async () => {
+  playSoundEffect("leave");
   setRoomClosedNotice(true);
   await deleteRoom();
   navigate("/multiplayer");

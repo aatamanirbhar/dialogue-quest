@@ -5,6 +5,7 @@ import React, {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAccount, isPremiumPlus } from "../lib/account";
+import { playSoundEffect } from "../lib/audio";
 import { supabase } from "../lib/supabase";
 
 const QUESTION_TIME = 30;
@@ -193,6 +194,10 @@ export default function LyricsGame() {
   if (correct) {
    setScore((scoreValue) => scoreValue + 1);
   }
+
+  playSoundEffect(
+   correct ? "correct" : "incorrect"
+  );
 
   setFeedback(
    timedOut

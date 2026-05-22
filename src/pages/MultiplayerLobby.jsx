@@ -35,6 +35,7 @@ import {
  getInsight,
  getPlayerTitle
 } from "../lib/playerStats";
+import { playSoundEffect } from "../lib/audio";
 
 const mixCategoryOptions = [
  {
@@ -819,6 +820,7 @@ export default function MultiplayerLobby() {
     setAccount(nextAccount);
    }
 
+   playSoundEffect("roomCreate");
    navigate(
     `/room/${code}?account=${account.id}`
    );
@@ -917,6 +919,7 @@ export default function MultiplayerLobby() {
    }
   }
 
+  playSoundEffect("roomJoin");
   navigate(
    `/room/${upperCode}?account=${account.id}`
   );
