@@ -498,7 +498,7 @@ export async function updatePassword(password) {
 export async function requestPasswordReset(email) {
   const cleanEmail = email.trim();
   const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-    redirectTo: `${window.location.origin}/reset-password`,
+    redirectTo: `https://www.gamenights.live/reset-password`,
   });
 
   if (error) throw error;
