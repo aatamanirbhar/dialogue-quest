@@ -15,6 +15,25 @@ const normalizeAnswer = (value) =>
   .toLowerCase()
   .replace(/[^a-z0-9]/g, "");
 
+const shuffleQuestions = (items) => {
+ const shuffled = [...items];
+
+ for (
+  let index = shuffled.length - 1;
+  index > 0;
+  index -= 1
+ ) {
+  const randomIndex = Math.floor(
+   Math.random() * (index + 1)
+  );
+  const current = shuffled[index];
+  shuffled[index] = shuffled[randomIndex];
+  shuffled[randomIndex] = current;
+ }
+
+ return shuffled;
+};
+
 const getQuestionOptions = (question) => {
  const rawOptions = question?.options;
 
@@ -73,18 +92,14 @@ const getActiveLyrics = async () => {
 
  const rows = response.data || [];
 
+ const activeRows = rows.filter(
+  (item) =>
+   item.is_active !== false &&
+   item.active !== false
+ );
+
  return {
-  data: rows
-   .filter(
-    (item) =>
-     item.is_active !== false &&
-     item.active !== false
-   )
-   .sort(
-    (a, b) =>
-     Number(a.sort_order || 0) -
-     Number(b.sort_order || 0)
-   ),
+  data: shuffleQuestions(activeRows),
   error: response.error
  };
 };
@@ -95,7 +110,8 @@ export default function LyricsGame() {
  const [loading, setLoading] = useState(true);
  const [index, setIndex] = useState(0);
  const [answer, setAnswer] = useState("");
- const [feedback, setFeedback] = useState("");
+ const [feedback, setFeedback] =
+  useState(null);
  const [finished, setFinished] = useState(false);
  const [score, setScore] = useState(0);
  const [timeLeft, setTimeLeft] =
@@ -123,7 +139,10 @@ export default function LyricsGame() {
 
    if (error) {
     setFeedback(
-     `Lyrics could not load: ${error.message}`
+     {
+      status: "error",
+      message: `Lyrics could not load: ${error.message}`
+     }
     );
     setLoading(false);
     return;
@@ -153,12 +172,48 @@ export default function LyricsGame() {
  const current = questions[index];
  const currentOptions =
   getQuestionOptions(current);
+ const feedbackMessage =
+  typeof feedback === "string"
+   ? feedback
+   : feedback?.message || "";
+ const showResult =
+  feedback &&
+  feedback.status !== "error";
+
+ const getOptionClassName = (option) => {
+  const base =
+   "bg-zinc-800 border border-zinc-700 rounded-xl p-4 text-left font-bold disabled:opacity-80";
+
+  if (!showResult || !current) {
+   return base;
+  }
+
+  const isCorrectOption =
+   normalizeAnswer(option) ===
+   normalizeAnswer(current.answer);
+  const isSubmittedOption =
+   normalizeAnswer(option) ===
+   normalizeAnswer(feedback.submittedAnswer);
+
+  if (isCorrectOption) {
+   return `${base} bg-emerald-500/15 border-emerald-400 text-emerald-100`;
+  }
+
+  if (
+   feedback.status === "incorrect" &&
+   isSubmittedOption
+  ) {
+   return `${base} bg-red-500/15 border-red-400 text-red-100`;
+  }
+
+  return `${base} opacity-60`;
+ };
 
  const goNext = () => {
   const next = index + 1;
 
   setAnswer("");
-  setFeedback("");
+  setFeedback(null);
   setTimeLeft(QUESTION_TIME);
   lockedRef.current = false;
   setLocked(false);
@@ -199,13 +254,15 @@ export default function LyricsGame() {
    correct ? "correct" : "incorrect"
   );
 
-  setFeedback(
-   timedOut
-    ? `Time's up. ${current.answer}`
+  setFeedback({
+   status: timedOut
+    ? "timeout"
     : correct
-     ? "Correct"
-     : `Wrong. ${current.answer}`
-  );
+     ? "correct"
+     : "incorrect",
+   answer: current.answer,
+   submittedAnswer: value
+  });
 
   advanceTimerRef.current =
    window.setTimeout(goNext, 1200);
@@ -250,7 +307,7 @@ export default function LyricsGame() {
      </h1>
      {feedback && (
       <p className="text-red-200 bg-red-500/10 border border-red-500/40 rounded-lg p-4 mb-4 max-w-xl">
-       {feedback}
+       {feedbackMessage || "Lyrics could not load."}
       </p>
      )}
      <button
@@ -332,7 +389,7 @@ export default function LyricsGame() {
         type="button"
         onClick={() => submit(option)}
         disabled={locked}
-        className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 text-left font-bold disabled:opacity-60"
+        className={getOptionClassName(option)}
        >
         {option}
        </button>
@@ -363,10 +420,39 @@ export default function LyricsGame() {
      </>
     )}
 
-    {feedback && (
-     <p className="mt-4 text-zinc-300">
-      {feedback}
-     </p>
+    {showResult && (
+     <div
+      className={`mt-5 rounded-2xl border p-5 text-center ${
+       feedback.status === "correct"
+        ? "border-emerald-400/50 bg-emerald-500/10"
+        : "border-red-400/50 bg-red-500/10"
+      }`}
+     >
+      <p
+       className={`text-3xl font-bold mb-3 ${
+        feedback.status === "correct"
+         ? "text-emerald-300"
+         : "text-red-300"
+       }`}
+      >
+       {feedback.status === "correct"
+        ? "Correct!"
+        : feedback.status === "timeout"
+         ? "Time's up!"
+         : "Wrong!"}
+      </p>
+
+      {feedback.status !== "correct" && (
+       <>
+        <p className="text-zinc-400 mb-2">
+         Correct Answer:
+        </p>
+        <p className="text-2xl font-bold text-yellow-300">
+         {feedback.answer}
+        </p>
+       </>
+      )}
+     </div>
     )}
    </div>
   </div>
