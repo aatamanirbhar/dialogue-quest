@@ -7,7 +7,10 @@ import {
  useSearchParams
 } from "react-router-dom";
 
-import { supabase } from "../lib/supabase";
+import {
+ supabase,
+ consumeAuthCodeFromUrl
+} from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
 import {
  PLANS,
@@ -180,6 +183,10 @@ export default function MultiplayerLobby() {
  const [showDonate, setShowDonate] = useState(false);
  const [authOverlayOpen, setAuthOverlayOpen] =
   useState(false);
+ const [creatingRoom, setCreatingRoom] =
+  useState(false);
+ const [sendingResetLink, setSendingResetLink] =
+  useState(false);
 
  const openAuthOverlay = (mode = "signin") => {
   setAuthMode(mode);
@@ -272,6 +279,8 @@ export default function MultiplayerLobby() {
 
   const confirmEmail = async () => {
    try {
+    await consumeAuthCodeFromUrl();
+
     const nextAccount =
      await refreshAccount();
 
@@ -292,8 +301,10 @@ export default function MultiplayerLobby() {
     if (!active) return;
     setGateNotice({
      eyebrow: "Email confirmation",
-     title: "We could not refresh your confirmation yet.",
-     body: error.message,
+     title: "We could not finish confirming this email.",
+     body:
+      error.message ||
+      "The link may have expired - request a new confirmation email and try again.",
      primaryLabel: "Close",
      onPrimary: () => setGateNotice(null)
     });
@@ -698,6 +709,8 @@ export default function MultiplayerLobby() {
  };
 
  const createRoom = async () => {
+  if (creatingRoom) return;
+
   try {
    if (
     selectedCategory === "lyrics" &&
@@ -712,12 +725,21 @@ export default function MultiplayerLobby() {
     return;
    }
 
+   setCreatingRoom(true);
+
    const code = Math.random()
     .toString(36)
     .substring(2, 8)
     .toUpperCase();
 
    const playerId = getPlayerId();
+
+   const fallbackMixCategories =
+    selectedCategory === "mix"
+     ? selectedMixCategories
+     : selectedCategory === "lyrics" && lyricsLanguage
+      ? [lyricsLanguage]
+      : null;
 
    const baseInsert = {
     room_code: code,
@@ -732,10 +754,7 @@ export default function MultiplayerLobby() {
     show_trivia: true,
     processing_answer: false,
     max_players: maxPlayers,
-    mix_categories:
-     selectedCategory === "mix"
-      ? selectedMixCategories
-      : null,
+    mix_categories: fallbackMixCategories,
     plan_required: PLANS.FREE
    };
 
@@ -793,6 +812,8 @@ export default function MultiplayerLobby() {
   } catch (error) {
    console.error(error);
    showCreateRoomError(error);
+  } finally {
+   setCreatingRoom(false);
   }
  };
 
@@ -897,6 +918,25 @@ export default function MultiplayerLobby() {
     onClose={() => setShowDonate(false)}
    />
 
+   {creatingRoom && (
+    <div className="fixed inset-0 z-[75] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+     <div className="w-full max-w-md bg-zinc-950 border border-yellow-500/40 rounded-2xl p-7 shadow-2xl text-center">
+      <p className="text-yellow-400 uppercase tracking-[0.3em] text-xs mb-4">
+       Multiplayer
+      </p>
+      <h2 className="text-3xl font-bold mb-3">
+       Room is being created
+      </h2>
+      <p className="text-zinc-400 mb-6">
+       Lining up your category, timers and players. Hang tight - this only takes a moment.
+      </p>
+      <div className="flex justify-center">
+       <div className="h-10 w-10 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+      </div>
+     </div>
+    </div>
+   )}
+
    {authOverlayOpen && authMode !== "recovery" && (
     <div className="fixed inset-0 z-[65] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
      <form
@@ -937,6 +977,7 @@ export default function MultiplayerLobby() {
       {(showResetPrompt || authMode === "signin") && (
        <button
         type="button"
+        disabled={sendingResetLink}
         onClick={async () => {
          if (!accountEmail.trim()) {
           setAuthMessage(
@@ -945,20 +986,29 @@ export default function MultiplayerLobby() {
           return;
          }
 
+         setSendingResetLink(true);
+         setAuthMessage(
+          "Generating you a password reset link..."
+         );
+
          try {
           await requestPasswordReset(
            accountEmail
           );
           setAuthMessage(
-           "Password reset email sent. Check your inbox."
+           "Password reset email sent. Check your inbox (and spam folder)."
           );
          } catch (error) {
           setAuthMessage(error.message);
+         } finally {
+          setSendingResetLink(false);
          }
         }}
-        className="w-full bg-zinc-950 border border-zinc-700 p-3 rounded-lg font-bold mb-4 text-sm"
+        className="w-full bg-zinc-950 border border-zinc-700 p-3 rounded-lg font-bold mb-4 text-sm disabled:opacity-60"
        >
-        Reset password
+        {sendingResetLink
+         ? "Generating reset link..."
+         : "Reset password"}
        </button>
       )}
 
@@ -1604,9 +1654,10 @@ export default function MultiplayerLobby() {
 
     <button
      onClick={createRoom}
-     className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold mb-6"
+     disabled={creatingRoom}
+     className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold mb-6 disabled:opacity-60"
     >
-      Create Room
+      {creatingRoom ? "Creating Room..." : "Create Room"}
     </button>
 
     <div className="flex items-center gap-3 mb-5">

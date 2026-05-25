@@ -71,6 +71,8 @@ export default function Categories() {
   useState(false);
  const [showReset, setShowReset] =
   useState(false);
+ const [sendingResetLink, setSendingResetLink] =
+  useState(false);
  const [playHistory, setPlayHistory] =
   useState([]);
  const [selectedMixCategories, setSelectedMixCategories] =
@@ -176,14 +178,21 @@ export default function Categories() {
    return;
   }
 
+  setSendingResetLink(true);
+  setLoginMessage(
+   "Generating you a password reset link..."
+  );
+
   try {
    await requestPasswordReset(loginEmail);
    setLoginMessage(
-    "Password reset email sent. Check your inbox."
+    "Password reset email sent. Check your inbox (and spam folder)."
    );
    setShowReset(false);
   } catch (error) {
    setLoginMessage(error.message);
+  } finally {
+   setSendingResetLink(false);
   }
  };
 
@@ -485,9 +494,12 @@ export default function Categories() {
       <button
        type="button"
        onClick={sendReset}
-       className="w-full bg-zinc-900 border border-zinc-800 p-4 rounded-lg font-bold mt-3"
+       disabled={sendingResetLink}
+       className="w-full bg-zinc-900 border border-zinc-800 p-4 rounded-lg font-bold mt-3 disabled:opacity-60"
       >
-       Forgot / reset password
+       {sendingResetLink
+        ? "Generating reset link..."
+        : "Forgot / reset password"}
       </button>
 
       {showReset && (

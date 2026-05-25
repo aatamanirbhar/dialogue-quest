@@ -9,6 +9,7 @@ import {
  useAudioPreference
 } from "../lib/audio";
 import DonateModal from "../components/DonateModal";
+import MultiplayerQuickModal from "../components/MultiplayerQuickModal";
 
 const insertRoomPlayer = async (payload) => {
  const { error } = await supabase
@@ -43,6 +44,8 @@ export default function Home(){
  const [joining, setJoining] = useState(false);
  const [account, setAccount] = useState(null);
  const [showDonate, setShowDonate] = useState(false);
+ const [multiplayerModalOpen, setMultiplayerModalOpen] =
+  useState(false);
 
  const toggleAudio = () => {
   const nextEnabled = !audioEnabled;
@@ -253,14 +256,22 @@ export default function Home(){
     </button>
 
     <button
-     onClick={() =>
-      navigate("/multiplayer?auth=signup")
-     }
+     onClick={() => setMultiplayerModalOpen(true)}
      className="bg-yellow-400 text-black px-8 py-4 rounded-lg font-bold"
     >
      Play Multiplayer
     </button>
    </div>
+
+   <MultiplayerQuickModal
+    open={multiplayerModalOpen}
+    account={account}
+    onClose={() => setMultiplayerModalOpen(false)}
+    onExplore={() => {
+     setMultiplayerModalOpen(false);
+     navigate("/multiplayer?auth=signup");
+    }}
+   />
   </div>
  )
 }

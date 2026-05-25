@@ -7,7 +7,10 @@ import {
  signOutAccount,
  updatePassword
 } from "../lib/account";
-import { supabase } from "../lib/supabase";
+import {
+ supabase,
+ consumeAuthCodeFromUrl
+} from "../lib/supabase";
 
 const getUrlAuthMessage = () => {
  const searchParams = new URLSearchParams(
@@ -61,7 +64,28 @@ export default function ResetPassword() {
    setLoading(false);
   };
 
-  const checkSession = async () => {
+  const verifyLink = async () => {
+   try {
+    const { session } =
+     await consumeAuthCodeFromUrl();
+
+    if (!active) return;
+
+    if (session) {
+     markReady();
+     return;
+    }
+   } catch (error) {
+    if (!active) return;
+
+    setMessage(
+     error.message ||
+      "This reset link is no longer valid. Request a new one and try again."
+    );
+    setLoading(false);
+    return;
+   }
+
    const { data, error } =
     await supabase.auth.getSession();
 
@@ -106,7 +130,7 @@ export default function ResetPassword() {
     }
    );
 
-  checkSession();
+  verifyLink();
 
   return () => {
    active = false;

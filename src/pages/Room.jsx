@@ -177,6 +177,30 @@ const categoryMatches = (
 const isLyricsCategory = (value) =>
  normalizeCategory(value) === "lyrics";
 
+const resolveLyricsLanguage = (room) => {
+ if (!room) return "";
+
+ const explicit = String(room.lyrics_language || "")
+  .toLowerCase()
+  .trim();
+
+ if (explicit) return explicit;
+
+ if (!isLyricsCategory(room.category)) return "";
+
+ const mix = Array.isArray(room.mix_categories)
+  ? room.mix_categories
+  : typeof room.mix_categories === "string"
+   ? room.mix_categories.split(",")
+   : [];
+
+ const candidate = String(mix[0] || "")
+  .toLowerCase()
+  .trim();
+
+ return candidate;
+};
+
 const mapLyricsQuestionToQuote = (question) => ({
  ...question,
  dialogue:
@@ -326,7 +350,7 @@ const getFallbackQuestionId = async (
 
  const { data, error } =
   await fetchActiveLyricsQuestions(
-   sourceRoom?.lyrics_language
+   resolveLyricsLanguage(sourceRoom)
   );
 
  if (error || !data?.length) {
@@ -677,7 +701,7 @@ export default function Room() {
    data: lyricsQuestions,
    error: lyricsError
   } = await fetchActiveLyricsQuestions(
-   sourceRoom.lyrics_language
+   resolveLyricsLanguage(sourceRoom)
   );
 
   if (lyricsError) {
@@ -1761,8 +1785,8 @@ useEffect(() => {
        ? "Premium Mix"
        : room.category === "lyrics"
         ? `Complete the Lyrics${
-           room.lyrics_language
-            ? ` - ${room.lyrics_language}`
+           resolveLyricsLanguage(room)
+            ? ` - ${resolveLyricsLanguage(room)}`
             : ""
           }`
         : room.category}{" "}

@@ -178,6 +178,7 @@ export default function LyricsGame() {
   useState(QUESTION_TIME);
  const [locked, setLocked] = useState(false);
  const [trivia, setTrivia] = useState(null);
+ const [bangerOpen, setBangerOpen] = useState(false);
  const [showDonate, setShowDonate] = useState(false);
  const triviaEnabledRef = useRef(true);
  const [triviaEnabled, setTriviaEnabled] = useState(true);
@@ -311,6 +312,7 @@ export default function LyricsGame() {
   setAnswer("");
   setFeedback(null);
   setTrivia(null);
+  setBangerOpen(false);
   setTimeLeft(QUESTION_TIME);
   lockedRef.current = false;
   setLocked(false);
@@ -337,7 +339,9 @@ export default function LyricsGame() {
   setTrivia({
    answer: question?.answer || "",
    fact,
-   posterUrl: question?.poster_url || null
+   posterUrl: question?.poster_url || null,
+   spotifyLink: question?.spotify_link || null,
+   youtubeLink: question?.youtube_link || null
   });
 
   triviaTimerRef.current = window.setTimeout(
@@ -352,6 +356,14 @@ export default function LyricsGame() {
    triviaTimerRef.current = null;
   }
   goNext();
+ };
+
+ const openBanger = () => {
+  if (triviaTimerRef.current) {
+   window.clearTimeout(triviaTimerRef.current);
+   triviaTimerRef.current = null;
+  }
+  setBangerOpen(true);
  };
 
  const turnOffTrivia = () => {
@@ -548,6 +560,14 @@ export default function LyricsGame() {
         {trivia.fact}
        </p>
        <div className="flex gap-3 flex-wrap">
+        {(trivia.spotifyLink || trivia.youtubeLink) && (
+         <button
+          onClick={openBanger}
+          className="bg-pink-500 hover:bg-pink-400 text-black px-6 py-3 rounded-lg font-bold"
+         >
+          Listen to this banger
+         </button>
+        )}
         <button
          onClick={skipTrivia}
          className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
@@ -563,6 +583,53 @@ export default function LyricsGame() {
        </div>
       </div>
      </div>
+
+     {bangerOpen && (
+      <div
+       className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-6"
+       onClick={() => setBangerOpen(false)}
+      >
+       <div
+        className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 sm:p-8 max-w-md w-full"
+        onClick={(event) => event.stopPropagation()}
+       >
+        <h3 className="text-2xl font-bold mb-2">
+         Listen to this banger
+        </h3>
+        <p className="text-zinc-400 mb-6">
+         Pick your player
+        </p>
+        <div className="grid gap-3">
+         {trivia.spotifyLink && (
+          <a
+           href={trivia.spotifyLink}
+           target="_blank"
+           rel="noopener noreferrer"
+           className="bg-green-500 hover:bg-green-400 text-black px-6 py-3 rounded-lg font-bold text-center"
+          >
+           Spotify
+          </a>
+         )}
+         {trivia.youtubeLink && (
+          <a
+           href={trivia.youtubeLink}
+           target="_blank"
+           rel="noopener noreferrer"
+           className="bg-red-600 hover:bg-red-500 text-white px-6 py-3 rounded-lg font-bold text-center"
+          >
+           YouTube
+          </a>
+         )}
+         <button
+          onClick={() => setBangerOpen(false)}
+          className="bg-zinc-800 hover:bg-zinc-700 px-6 py-3 rounded-lg font-bold"
+         >
+          Close
+         </button>
+        </div>
+       </div>
+      </div>
+     )}
     </div>
    )}
 
