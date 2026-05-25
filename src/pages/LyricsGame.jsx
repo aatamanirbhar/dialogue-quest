@@ -3,12 +3,17 @@ import React, {
  useRef,
  useState
 } from "react";
-import { useNavigate } from "react-router-dom";
-import { getAccount, isPremiumPlus } from "../lib/account";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { getAccount } from "../lib/account";
 import { playSoundEffect } from "../lib/audio";
 import { supabase } from "../lib/supabase";
+import LyricsLanguageModal, {
+ LYRICS_LANGUAGES
+} from "../components/LyricsLanguageModal";
+import DonateModal from "../components/DonateModal";
 
 const QUESTION_TIME = 30;
+const TRIVIA_DURATION_MS = 5000;
 
 const normalizeAnswer = (value) =>
  String(value || "")
@@ -63,22 +68,54 @@ const getQuestionOptions = (question) => {
  return [];
 };
 
-const getActiveLyrics = async () => {
- let response = await supabase
-  .from("lyrics_questions")
-  .select("*")
-  .eq("is_active", true)
-  .order("sort_order", { ascending: true });
+const getActiveLyrics = async (language) => {
+ const cleanLanguage = String(language || "").toLowerCase();
+
+ const runQuery = async ({ withLanguage }) => {
+  let query = supabase
+   .from("lyrics_questions")
+   .select("*");
+
+  if (withLanguage && cleanLanguage) {
+   query = query.eq("fetch_by", cleanLanguage);
+  }
+
+  let response = await query
+   .eq("is_active", true)
+   .order("sort_order", { ascending: true });
+
+  if (
+   response.error &&
+   /is_active|sort_order|schema cache|column/i.test(
+    response.error.message || ""
+   )
+  ) {
+   let fallback = supabase
+    .from("lyrics_questions")
+    .select("*");
+
+   if (withLanguage && cleanLanguage) {
+    fallback = fallback.eq(
+     "fetch_by",
+     cleanLanguage
+    );
+   }
+
+   response = await fallback;
+  }
+
+  return response;
+ };
+
+ let response = await runQuery({ withLanguage: true });
 
  if (
   response.error &&
-  /is_active|sort_order|schema cache|column/i.test(
+  /fetch_by|schema cache|column/i.test(
    response.error.message || ""
   )
  ) {
-  response = await supabase
-   .from("lyrics_questions")
-   .select("*");
+  response = await runQuery({ withLanguage: false });
  }
 
  if (
@@ -92,22 +129,45 @@ const getActiveLyrics = async () => {
 
  const rows = response.data || [];
 
- const activeRows = rows.filter(
-  (item) =>
-   item.is_active !== false &&
-   item.active !== false
- );
+ const filteredRows = rows.filter((item) => {
+  if (item.is_active === false || item.active === false) {
+   return false;
+  }
+
+  if (!cleanLanguage) return true;
+
+  const itemLanguage = String(item.fetch_by || "")
+   .toLowerCase()
+   .trim();
+
+  return !itemLanguage || itemLanguage === cleanLanguage;
+ });
 
  return {
-  data: shuffleQuestions(activeRows),
+  data: shuffleQuestions(filteredRows),
   error: response.error
  };
 };
 
 export default function LyricsGame() {
  const navigate = useNavigate();
+ const [searchParams, setSearchParams] = useSearchParams();
+ const queryLanguage = (
+  searchParams.get("language") || ""
+ ).toLowerCase();
+ const initialLanguage = LYRICS_LANGUAGES.includes(
+  queryLanguage
+ )
+  ? queryLanguage
+  : "";
+
+ const [language, setLanguage] = useState(
+  initialLanguage
+ );
+ const [showLanguageModal, setShowLanguageModal] =
+  useState(!initialLanguage);
  const [questions, setQuestions] = useState([]);
- const [loading, setLoading] = useState(true);
+ const [loading, setLoading] = useState(Boolean(initialLanguage));
  const [index, setIndex] = useState(0);
  const [answer, setAnswer] = useState("");
  const [feedback, setFeedback] =
@@ -117,33 +177,66 @@ export default function LyricsGame() {
  const [timeLeft, setTimeLeft] =
   useState(QUESTION_TIME);
  const [locked, setLocked] = useState(false);
+ const [trivia, setTrivia] = useState(null);
+ const [showDonate, setShowDonate] = useState(false);
+ const triviaEnabledRef = useRef(true);
+ const [triviaEnabled, setTriviaEnabled] = useState(true);
  const lockedRef = useRef(false);
  const advanceTimerRef = useRef(null);
+ const triviaTimerRef = useRef(null);
+
+ const startGame = (selectedLanguage) => {
+  if (advanceTimerRef.current) {
+   window.clearTimeout(advanceTimerRef.current);
+   advanceTimerRef.current = null;
+  }
+  if (triviaTimerRef.current) {
+   window.clearTimeout(triviaTimerRef.current);
+   triviaTimerRef.current = null;
+  }
+
+  setLanguage(selectedLanguage);
+  setShowLanguageModal(false);
+  setIndex(0);
+  setAnswer("");
+  setFeedback(null);
+  setFinished(false);
+  setScore(0);
+  setTimeLeft(QUESTION_TIME);
+  setLocked(false);
+  lockedRef.current = false;
+  setTrivia(null);
+  setLoading(true);
+
+  setSearchParams(
+   { language: selectedLanguage },
+   { replace: true }
+  );
+ };
 
  useEffect(() => {
   let active = true;
 
   const load = async () => {
-   const nextAccount = await getAccount();
+   await getAccount();
    if (!active) return;
 
-   if (!isPremiumPlus(nextAccount)) {
-    navigate("/categories");
+   if (!language) {
+    setLoading(false);
     return;
    }
 
-   const { data, error } =
-    await getActiveLyrics();
+   const { data, error } = await getActiveLyrics(
+    language
+   );
 
    if (!active) return;
 
    if (error) {
-    setFeedback(
-     {
-      status: "error",
-      message: `Lyrics could not load: ${error.message}`
-     }
-    );
+    setFeedback({
+     status: "error",
+     message: `Lyrics could not load: ${error.message}`
+    });
     setLoading(false);
     return;
    }
@@ -157,7 +250,7 @@ export default function LyricsGame() {
   return () => {
    active = false;
   };
- }, [navigate]);
+ }, [navigate, language]);
 
  useEffect(() => {
   return () => {
@@ -165,6 +258,9 @@ export default function LyricsGame() {
     window.clearTimeout(
      advanceTimerRef.current
     );
+   }
+   if (triviaTimerRef.current) {
+    window.clearTimeout(triviaTimerRef.current);
    }
   };
  }, []);
@@ -214,6 +310,7 @@ export default function LyricsGame() {
 
   setAnswer("");
   setFeedback(null);
+  setTrivia(null);
   setTimeLeft(QUESTION_TIME);
   lockedRef.current = false;
   setLocked(false);
@@ -224,6 +321,43 @@ export default function LyricsGame() {
   }
 
   setIndex(next);
+ };
+
+ const beginTrivia = (question) => {
+  if (!triviaEnabledRef.current) {
+   advanceTimerRef.current =
+    window.setTimeout(goNext, 1200);
+   return;
+  }
+
+  const fact =
+   question?.trivia_fact ||
+   `Complete the lyrics answer: ${question?.answer || ""}`;
+
+  setTrivia({
+   answer: question?.answer || "",
+   fact,
+   posterUrl: question?.poster_url || null
+  });
+
+  triviaTimerRef.current = window.setTimeout(
+   goNext,
+   TRIVIA_DURATION_MS
+  );
+ };
+
+ const skipTrivia = () => {
+  if (triviaTimerRef.current) {
+   window.clearTimeout(triviaTimerRef.current);
+   triviaTimerRef.current = null;
+  }
+  goNext();
+ };
+
+ const turnOffTrivia = () => {
+  triviaEnabledRef.current = false;
+  setTriviaEnabled(false);
+  skipTrivia();
  };
 
  const submit = (
@@ -264,12 +398,21 @@ export default function LyricsGame() {
    submittedAnswer: value
   });
 
-  advanceTimerRef.current =
-   window.setTimeout(goNext, 1200);
+  advanceTimerRef.current = window.setTimeout(() => {
+   beginTrivia(current);
+  }, 1200);
  };
 
  useEffect(() => {
-  if (!current || finished || locked) return;
+  if (
+   !current ||
+   finished ||
+   locked ||
+   trivia ||
+   !language
+  ) {
+   return;
+  }
 
   setTimeLeft(QUESTION_TIME);
 
@@ -288,7 +431,18 @@ export default function LyricsGame() {
   return () => {
    window.clearInterval(interval);
   };
- }, [index, current?.id, finished, locked]);
+ }, [index, current?.id, finished, locked, language, trivia]);
+
+ if (showLanguageModal) {
+  return (
+   <LyricsLanguageModal
+    open
+    dismissable={false}
+    onClose={() => navigate("/categories")}
+    onSelect={(value) => startGame(value)}
+   />
+  );
+ }
 
  if (loading) {
   return (
@@ -303,19 +457,27 @@ export default function LyricsGame() {
    <div className="min-h-screen bg-black text-white flex items-center justify-center p-6 text-center">
     <div>
      <h1 className="text-3xl font-bold mb-4">
-      No lyrics questions found
+      No lyrics for {language || "this language"}
      </h1>
      {feedback && (
       <p className="text-red-200 bg-red-500/10 border border-red-500/40 rounded-lg p-4 mb-4 max-w-xl">
        {feedbackMessage || "Lyrics could not load."}
       </p>
      )}
-     <button
-      onClick={() => navigate("/categories")}
-      className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
-     >
-      Back
-     </button>
+     <div className="flex gap-3 justify-center flex-wrap">
+      <button
+       onClick={() => setShowLanguageModal(true)}
+       className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
+      >
+       Pick another language
+      </button>
+      <button
+       onClick={() => navigate("/categories")}
+       className="bg-zinc-800 px-6 py-3 rounded-lg font-bold"
+      >
+       Back
+      </button>
+     </div>
     </div>
    </div>
   );
@@ -324,6 +486,10 @@ export default function LyricsGame() {
  if (finished) {
   return (
    <div className="min-h-screen bg-black text-white flex items-center justify-center p-6 text-center">
+    <DonateModal
+     open={showDonate}
+     onClose={() => setShowDonate(false)}
+    />
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-xl w-full">
      <h1 className="text-4xl font-bold mb-4">
       Lyrics Finished
@@ -331,12 +497,29 @@ export default function LyricsGame() {
      <p className="text-zinc-300 mb-6">
       Score: {score} / {questions.length}
      </p>
-     <button
-      onClick={() => navigate("/categories")}
-      className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
-     >
-      Back to Categories
-     </button>
+     <p className="text-zinc-500 text-sm mb-6 capitalize">
+      Language: {language}
+     </p>
+     <div className="grid gap-3">
+      <button
+       onClick={() => setShowDonate(true)}
+       className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
+      >
+       Buy us a chai - Donate
+      </button>
+      <button
+       onClick={() => setShowLanguageModal(true)}
+       className="bg-white text-black px-6 py-3 rounded-lg font-bold"
+      >
+       Play another language
+      </button>
+      <button
+       onClick={() => navigate("/categories")}
+       className="bg-zinc-800 px-6 py-3 rounded-lg font-bold"
+      >
+       Back to Categories
+      </button>
+     </div>
     </div>
    </div>
   );
@@ -344,6 +527,45 @@ export default function LyricsGame() {
 
  return (
   <div className="min-h-screen bg-black text-white p-6 flex items-center justify-center">
+   {trivia && (
+    <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-6 overflow-y-auto">
+     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden max-w-2xl w-full">
+      {trivia.posterUrl && (
+       <img
+        src={trivia.posterUrl}
+        alt={trivia.answer}
+        className="w-full h-64 sm:h-[420px] object-cover"
+       />
+      )}
+      <div className="p-5 sm:p-8">
+       <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-3">
+        Trivia
+       </p>
+       <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+        {trivia.answer}
+       </h2>
+       <p className="text-zinc-300 text-lg mb-8 leading-relaxed">
+        {trivia.fact}
+       </p>
+       <div className="flex gap-3 flex-wrap">
+        <button
+         onClick={skipTrivia}
+         className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
+        >
+         Skip
+        </button>
+        <button
+         onClick={turnOffTrivia}
+         className="bg-zinc-700 px-6 py-3 rounded-lg font-bold"
+        >
+         Turn Off Trivia
+        </button>
+       </div>
+      </div>
+     </div>
+    </div>
+   )}
+
    <div className="w-full max-w-3xl bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8">
     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
      <div>
@@ -352,6 +574,9 @@ export default function LyricsGame() {
       </h1>
       <p className="text-zinc-400 mt-2">
        Question {index + 1} / {questions.length}
+       <span className="ml-3 capitalize text-yellow-300">
+        ({language})
+       </span>
       </p>
      </div>
 
@@ -453,6 +678,12 @@ export default function LyricsGame() {
        </>
       )}
      </div>
+    )}
+
+    {!triviaEnabled && (
+     <p className="text-zinc-500 text-xs mt-4">
+      Trivia screen turned off for this run.
+     </p>
     )}
    </div>
   </div>

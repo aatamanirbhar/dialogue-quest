@@ -24,6 +24,7 @@ import {
  getRandomCompliment
 } from "../lib/playerStats";
 import { playSoundEffect } from "../lib/audio";
+import DonateModal from "../components/DonateModal";
 
 const DEFAULT_QUESTION_DURATION = 15;
 const TRIVIA_DURATION = 5000;
@@ -232,24 +233,55 @@ const loadQuestionRecord = async (
  return data || null;
 };
 
-const fetchActiveLyricsQuestions = async () => {
- let response = await supabase
-  .from("lyrics_questions")
-  .select("*")
-  .eq("is_active", true)
-  .order("sort_order", {
-   ascending: true
-  });
+const fetchActiveLyricsQuestions = async (
+ language
+) => {
+ const cleanLanguage = String(
+  language || ""
+ )
+  .toLowerCase()
+  .trim();
+
+ const buildQuery = (withLanguage) => {
+  let query = supabase
+   .from("lyrics_questions")
+   .select("*");
+
+  if (withLanguage && cleanLanguage) {
+   query = query.eq("fetch_by", cleanLanguage);
+  }
+
+  return query;
+ };
+
+ const runWithFilters = async (withLanguage) => {
+  let response = await buildQuery(withLanguage)
+   .eq("is_active", true)
+   .order("sort_order", {
+    ascending: true
+   });
+
+  if (
+   response.error &&
+   /is_active|sort_order|schema cache|column/i.test(
+    response.error.message || ""
+   )
+  ) {
+   response = await buildQuery(withLanguage);
+  }
+
+  return response;
+ };
+
+ let response = await runWithFilters(true);
 
  if (
   response.error &&
-  /is_active|sort_order|schema cache|column/i.test(
+  /fetch_by|schema cache|column/i.test(
    response.error.message || ""
   )
  ) {
-  response = await supabase
-   .from("lyrics_questions")
-   .select("*");
+  response = await runWithFilters(false);
  }
 
  if (!response.error) {
@@ -261,6 +293,18 @@ const fetchActiveLyricsQuestions = async () => {
       item.is_active !== false &&
       item.active !== false
     )
+    .filter((item) => {
+     if (!cleanLanguage) return true;
+     const itemLanguage = String(
+      item.fetch_by || ""
+     )
+      .toLowerCase()
+      .trim();
+     return (
+      !itemLanguage ||
+      itemLanguage === cleanLanguage
+     );
+    })
     .sort(
      (a, b) =>
       Number(a.sort_order || 0) -
@@ -281,7 +325,9 @@ const getFallbackQuestionId = async (
  }
 
  const { data, error } =
-  await fetchActiveLyricsQuestions();
+  await fetchActiveLyricsQuestions(
+   sourceRoom?.lyrics_language
+  );
 
  if (error || !data?.length) {
   if (error) console.error(error);
@@ -370,6 +416,7 @@ export default function Room() {
   useState("");
  const [replayRequests, setReplayRequests] =
   useState([]);
+ const [showDonate, setShowDonate] = useState(false);
 
  const advancingRef = useRef(false);
  const previousPlayersRef = useRef([]);
@@ -629,7 +676,9 @@ export default function Room() {
   const {
    data: lyricsQuestions,
    error: lyricsError
-  } = await fetchActiveLyricsQuestions();
+  } = await fetchActiveLyricsQuestions(
+   sourceRoom.lyrics_language
+  );
 
   if (lyricsError) {
    console.error(lyricsError);
@@ -1516,6 +1565,10 @@ useEffect(() => {
 
  return (
   <div className="min-h-screen bg-black text-white p-6 lg:p-10">
+   <DonateModal
+    open={showDonate}
+    onClose={() => setShowDonate(false)}
+   />
    {room.game_finished && (
     <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto p-4 sm:p-6">
      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-6 text-center max-w-3xl w-full mx-auto my-4 sm:my-8">
@@ -1607,6 +1660,12 @@ useEffect(() => {
       </div>
 
       <div className="flex flex-wrap justify-center gap-3">
+       <button
+        onClick={() => setShowDonate(true)}
+        className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
+       >
+        Buy us a chai - Donate
+       </button>
        {isHost && (
         <>
          <button
@@ -1701,7 +1760,11 @@ useEffect(() => {
       {room.category === "mix"
        ? "Premium Mix"
        : room.category === "lyrics"
-        ? "Complete the Lyrics"
+        ? `Complete the Lyrics${
+           room.lyrics_language
+            ? ` - ${room.lyrics_language}`
+            : ""
+          }`
         : room.category}{" "}
       {!room.endless_mode &&
        `- ${room.total_rounds} rounds`}

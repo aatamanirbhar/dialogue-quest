@@ -739,19 +739,13 @@ export async function useTrialCredit(account) {
 
 export function getTrialCreditsLeft(account) {
   if (!account) return 0;
-  if (account.plan !== PLANS.FREE) {
-    return Infinity;
-  }
-
-  return Math.max(0, TRIAL_LIMIT - Number(account.roomsCreated || 0));
+  return Infinity;
 }
 
 export function isPremium(account) {
-  return (
-    account?.plan === PLANS.PREMIUM || account?.plan === PLANS.PREMIUM_PLUS
-  );
+  return Boolean(account);
 }
 
 export function isPremiumPlus(account) {
-  return account?.plan === PLANS.PREMIUM_PLUS;
+  return Boolean(account);
 }

@@ -8,8 +8,6 @@ import {
  getPlanBenefits,
  getPlanLabel,
  getPlayHistory,
- isPremium,
- isPremiumPlus,
  requestPasswordReset,
  signInAccount
 } from "../lib/account";
@@ -17,6 +15,8 @@ import {
  getInsight,
  getPlayerTitle
 } from "../lib/playerStats";
+import LyricsLanguageModal from "../components/LyricsLanguageModal";
+import DonateModal from "../components/DonateModal";
 
 const categories = [
  "hollywood",
@@ -73,12 +73,11 @@ export default function Categories() {
   useState(false);
  const [playHistory, setPlayHistory] =
   useState([]);
- const [premiumNotice, setPremiumNotice] =
-  useState(false);
- const [lyricsNotice, setLyricsNotice] =
-  useState(false);
  const [selectedMixCategories, setSelectedMixCategories] =
   useState(["hollywood", "tvshows"]);
+ const [lyricsLanguagePicker, setLyricsLanguagePicker] =
+  useState(null);
+ const [showDonate, setShowDonate] = useState(false);
 
  useEffect(() => {
   let active = true;
@@ -125,8 +124,6 @@ export default function Categories() {
   };
  }, [account]);
 
- const hasPremium = isPremium(account);
- const hasPremiumPlus = isPremiumPlus(account);
  const planLabel = getPlanLabel(
   account?.plan || "free"
  );
@@ -190,24 +187,7 @@ export default function Categories() {
   }
  };
 
- const openLyricsGate = () => {
-  setLyricsNotice(true);
- };
-
- const openPremiumMixNotice = () => {
-  setPremiumNotice(true);
- };
-
  const playSolo = (category) => {
-  if (
-   (category === "mix" ||
-    category === "trivia") &&
-   !hasPremium
-  ) {
-   openPremiumMixNotice();
-   return;
-  }
-
   if (category === "mix") {
    const mix = selectedMixCategories.join(",");
    navigate(`/solo/mix?mix=${mix}`);
@@ -218,15 +198,6 @@ export default function Categories() {
  };
 
  const playMultiplayer = (category) => {
-  if (
-   (category === "mix" ||
-    category === "trivia") &&
-   !hasPremium
-  ) {
-   openPremiumMixNotice();
-   return;
-  }
-
   if (category === "mix") {
    const mix = selectedMixCategories.join(",");
    navigate(
@@ -236,6 +207,24 @@ export default function Categories() {
   }
 
   navigate(`/multiplayer?category=${category}`);
+ };
+
+ const openLyricsLanguagePicker = (mode) => {
+  setLyricsLanguagePicker(mode);
+ };
+
+ const onLyricsLanguageSelected = (value) => {
+  const mode = lyricsLanguagePicker;
+  setLyricsLanguagePicker(null);
+
+  if (mode === "multiplayer") {
+   navigate(
+    `/multiplayer?category=lyrics&language=${value}`
+   );
+   return;
+  }
+
+  navigate(`/lyrics?language=${value}`);
  };
 
  const toggleMixCategory = (value) => {
@@ -254,71 +243,26 @@ export default function Categories() {
 
  return (
   <div className="min-h-screen bg-black text-white p-5 sm:p-10">
-   {premiumNotice && (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-     <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
-      <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-4">
-       Premium Mix
-      </p>
-      <h2 className="text-3xl font-bold leading-tight mb-4">
-       Want to play different categories at the same time?
-      </h2>
-      <p className="text-zinc-400 leading-relaxed mb-6">
-       Upgrade to Premium to play across all categories in one mixed game, in both solo and multiplayer.
-      </p>
+   <LyricsLanguageModal
+    open={Boolean(lyricsLanguagePicker)}
+    onClose={() => setLyricsLanguagePicker(null)}
+    onSelect={onLyricsLanguageSelected}
+    title={
+     lyricsLanguagePicker === "multiplayer"
+      ? "Pick a language for your room"
+      : "Pick your lyrics language"
+    }
+    subtitle={
+     lyricsLanguagePicker === "multiplayer"
+      ? "All players in the room will see questions from this language."
+      : "Questions will be fetched from that language only."
+    }
+   />
 
-      <div className="grid gap-3">
-       <button
-        onClick={() => navigate("/payment")}
-        className="bg-yellow-400 text-black p-4 rounded-lg font-bold"
-       >
-        Upgrade to Premium
-       </button>
-       <button
-        onClick={() =>
-         setPremiumNotice(false)
-        }
-        className="bg-zinc-900 border border-zinc-800 p-4 rounded-lg font-bold"
-       >
-        Keep Browsing
-       </button>
-      </div>
-    </div>
-   </div>
-   )}
-
-   {lyricsNotice && (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-     <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
-      <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-4">
-       Premium Plus
-      </p>
-      <h2 className="text-3xl font-bold leading-tight mb-4">
-       Complete the Lyrics is locked.
-      </h2>
-      <p className="text-zinc-400 leading-relaxed mb-6">
-       This section opens with Premium Plus early access for solo and multiplayer.
-      </p>
-
-      <div className="grid gap-3">
-       <button
-        onClick={() => navigate("/payment")}
-        className="bg-yellow-400 text-black p-4 rounded-lg font-bold"
-       >
-        Upgrade to Premium Plus
-       </button>
-       <button
-        onClick={() =>
-         setLyricsNotice(false)
-        }
-        className="bg-zinc-900 border border-zinc-800 p-4 rounded-lg font-bold"
-       >
-        Keep Browsing
-       </button>
-      </div>
-     </div>
-    </div>
-   )}
+   <DonateModal
+    open={showDonate}
+    onClose={() => setShowDonate(false)}
+   />
 
    <div className="max-w-5xl mx-auto">
     <div className="flex justify-between items-center gap-3 mb-8">
@@ -362,10 +306,8 @@ export default function Categories() {
     </h1>
     <p className="text-zinc-400 mb-10">
      {loadingAccount
-      ? "Checking premium access..."
-      : hasPremium
-       ? "Premium active. Mix pulls questions from every category."
-       : "Mix is a Premium category where you choose which categories play together."}
+      ? "Loading..."
+      : "Pick a category for solo or jump into multiplayer. Everything is unlocked."}
     </p>
 
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 mb-6 flex items-center justify-between gap-4">
@@ -388,102 +330,79 @@ export default function Categories() {
     </div>
 
     <div className="grid md:grid-cols-2 gap-6">
-     {categories.map((item) => {
-      const locked =
-       (item === "mix" ||
-        item === "trivia") &&
-       !hasPremium;
-
-      return (
-       <div
-        key={item}
-        className={`bg-zinc-900 border rounded-2xl p-6 sm:p-8 ${
-         locked
-          ? "border-yellow-500/40"
-          : "border-zinc-800"
-        }`}
-       >
-        <div className="flex items-start justify-between gap-4 mb-6">
-         <div>
-          <h2 className="text-3xl capitalize font-bold">
-           {getLabel(item)}
-          </h2>
-          {item === "mix" && (
-           <p className="text-zinc-400 mt-3">
-            {locked
-             ? "Premium unlock: choose the categories you want in one run."
-             : "Unlocked: choose exactly which categories can appear."}
-           </p>
-          )}
-          {item === "trivia" && (
-           <p className="text-zinc-400 mt-3">
-            {locked
-             ? "Premium unlock: poster-backed trivia questions in solo and Premium Plus accounts."
-             : "Unlocked: poster-backed trivia questions are ready to play."}
-           </p>
-          )}
-         </div>
-
-         {locked && (
-          <span className="text-xs uppercase tracking-[0.2em] text-yellow-300 border border-yellow-500/40 rounded-full px-3 py-1">
-           Premium
-          </span>
+     {categories.map((item) => (
+      <div
+       key={item}
+       className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8"
+      >
+       <div className="flex items-start justify-between gap-4 mb-6">
+        <div>
+         <h2 className="text-3xl capitalize font-bold">
+          {getLabel(item)}
+         </h2>
+         {item === "mix" && (
+          <p className="text-zinc-400 mt-3">
+           Choose exactly which categories can appear.
+          </p>
+         )}
+         {item === "trivia" && (
+          <p className="text-zinc-400 mt-3">
+           Poster-backed trivia questions are ready to play.
+          </p>
          )}
         </div>
+       </div>
 
-        {item === "mix" && hasPremium && (
-         <div className="mb-6">
-          <p className="text-sm uppercase tracking-[0.2em] text-zinc-500 mb-3">
-           Choose Mix Categories
-          </p>
-          <div className="flex flex-wrap gap-2">
-           {mixCategoryOptions.map((option) => {
-            const active =
-             selectedMixCategories.includes(
-              option.value
-             );
-
-            return (
-             <button
-              key={option.value}
-              type="button"
-              onClick={() =>
-               toggleMixCategory(option.value)
-              }
-              className={`px-4 py-2 rounded-lg border font-bold ${
-               active
-                ? "bg-yellow-400 text-black border-yellow-400"
-                : "bg-zinc-950 text-zinc-300 border-zinc-700"
-              }`}
-             >
-              {option.label}
-             </button>
+       {item === "mix" && (
+        <div className="mb-6">
+         <p className="text-sm uppercase tracking-[0.2em] text-zinc-500 mb-3">
+          Choose Mix Categories
+         </p>
+         <div className="flex flex-wrap gap-2">
+          {mixCategoryOptions.map((option) => {
+           const active =
+            selectedMixCategories.includes(
+             option.value
             );
-           })}
-          </div>
+
+           return (
+            <button
+             key={option.value}
+             type="button"
+             onClick={() =>
+              toggleMixCategory(option.value)
+             }
+             className={`px-4 py-2 rounded-lg border font-bold ${
+              active
+               ? "bg-yellow-400 text-black border-yellow-400"
+               : "bg-zinc-950 text-zinc-300 border-zinc-700"
+             }`}
+            >
+             {option.label}
+            </button>
+           );
+          })}
          </div>
-        )}
+        </div>
+       )}
 
-        <div className="flex gap-4 flex-wrap">
-         <button
-          onClick={() => playSolo(item)}
-          className="bg-white text-black px-5 py-3 rounded-lg font-bold"
-         >
-          Solo
-         </button>
+       <div className="flex gap-4 flex-wrap">
+        <button
+         onClick={() => playSolo(item)}
+         className="bg-white text-black px-5 py-3 rounded-lg font-bold"
+        >
+         Solo
+        </button>
 
-         <button
-          onClick={() =>
-           playMultiplayer(item)
-          }
-          className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
-         >
-          Multiplayer
-         </button>
+        <button
+         onClick={() => playMultiplayer(item)}
+         className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
+        >
+         Multiplayer
+        </button>
        </div>
       </div>
-      );
-     })}
+     ))}
 
      <div className="bg-zinc-900 border border-yellow-500/40 rounded-2xl p-6 sm:p-8 md:col-span-2">
       <div className="flex items-start justify-between gap-4 mb-4">
@@ -492,42 +411,24 @@ export default function Categories() {
          Complete the Lyrics
         </h2>
         <p className="text-zinc-400 mt-3">
-         {hasPremiumPlus
-          ? "Premium Plus early access is unlocked. Play solo or host a lyrics room."
-          : "Premium Plus early access. Unlock this section to play the lyrics game in solo and multiplayer."}
+         Pick a language - English, Hindi, or Punjabi - and play in solo or multiplayer.
         </p>
        </div>
-       <span className={`text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border ${
-        hasPremiumPlus
-         ? "text-cyan-300 border-cyan-400/40 bg-cyan-400/10"
-         : "text-yellow-300 border-yellow-500/40"
-       }`}>
-        {hasPremiumPlus ? "Unlocked" : "Premium Plus"}
+       <span className="text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border text-cyan-300 border-cyan-400/40 bg-cyan-400/10">
+        Unlocked
        </span>
       </div>
 
       <div className="flex gap-4 flex-wrap">
        <button
-        onClick={() => {
-         if (!hasPremiumPlus) {
-          openLyricsGate();
-          return;
-         }
-         navigate("/lyrics");
-        }}
+        onClick={() => openLyricsLanguagePicker("solo")}
         className="bg-white text-black px-5 py-3 rounded-lg font-bold"
        >
-        {hasPremiumPlus ? "Solo" : "Unlock Premium Plus"}
+        Solo
        </button>
 
        <button
-        onClick={() => {
-         if (!hasPremiumPlus) {
-          openLyricsGate();
-          return;
-         }
-         navigate("/multiplayer?category=lyrics");
-        }}
+        onClick={() => openLyricsLanguagePicker("multiplayer")}
         className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
        >
         Multiplayer
@@ -669,10 +570,22 @@ export default function Categories() {
 
       <div className="flex flex-wrap gap-3">
        <button
-        onClick={() => navigate("/profile/edit")}
+        onClick={() => setShowDonate(true)}
         className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
        >
+        Donate
+       </button>
+       <button
+        onClick={() => navigate("/profile/edit")}
+        className="bg-white text-black px-5 py-3 rounded-lg font-bold"
+       >
         Edit my profile
+       </button>
+       <button
+        onClick={() => navigate("/admin/lyrics")}
+        className="bg-zinc-900 border border-zinc-800 px-5 py-3 rounded-lg font-bold"
+       >
+        Manage lyrics
        </button>
        <button
         onClick={() => setProfileOpen(false)}

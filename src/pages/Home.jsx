@@ -8,6 +8,7 @@ import {
  playSoundEffect,
  useAudioPreference
 } from "../lib/audio";
+import DonateModal from "../components/DonateModal";
 
 const insertRoomPlayer = async (payload) => {
  const { error } = await supabase
@@ -41,6 +42,7 @@ export default function Home(){
  const [username, setUsername] = useState("");
  const [joining, setJoining] = useState(false);
  const [account, setAccount] = useState(null);
+ const [showDonate, setShowDonate] = useState(false);
 
  const toggleAudio = () => {
   const nextEnabled = !audioEnabled;
@@ -160,6 +162,10 @@ export default function Home(){
 
  return (
   <div className="min-h-screen flex flex-col items-center justify-center text-center px-4 py-8">
+   <DonateModal
+    open={showDonate}
+    onClose={() => setShowDonate(false)}
+   />
    <button
     type="button"
     onClick={toggleAudio}

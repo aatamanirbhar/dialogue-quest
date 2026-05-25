@@ -1,5 +1,6 @@
 import React, {
  useEffect,
+ useRef,
  useState
 } from "react";
 import {
@@ -10,8 +11,6 @@ import {
 import { supabase } from "../lib/supabase";
 import {
  getAccount,
- isPremium,
- isPremiumPlus,
  recordPlayHistory
 } from "../lib/account";
 import {
@@ -19,8 +18,10 @@ import {
  getRandomCompliment
 } from "../lib/playerStats";
 import { playSoundEffect } from "../lib/audio";
+import DonateModal from "../components/DonateModal";
 
 const QUESTION_TIME = 30;
+const TRIVIA_DURATION_MS = 5000;
 const DEFAULT_MIX_CATEGORIES = [
  "hollywood",
  "tvshows"
@@ -94,8 +95,6 @@ export default function SoloGame() {
  const [quotes, setQuotes] = useState([]);
  const [loading, setLoading] = useState(true);
  const [account, setAccount] = useState(null);
- const [premiumBlocked, setPremiumBlocked] =
-  useState(false);
  const [currentIndex, setCurrentIndex] =
   useState(0);
  const [answer, setAnswer] = useState("");
@@ -114,14 +113,30 @@ export default function SoloGame() {
   useState(null);
  const [historyRecorded, setHistoryRecorded] =
   useState(false);
+ const [trivia, setTrivia] = useState(null);
+ const [triviaEnabled, setTriviaEnabled] = useState(true);
+ const [showDonate, setShowDonate] = useState(false);
+ const triviaEnabledRef = useRef(true);
+ const advanceTimerRef = useRef(null);
+ const triviaTimerRef = useRef(null);
 
  useEffect(() => {
   loadQuotes();
  }, [category, searchParams]);
 
+ useEffect(() => {
+  return () => {
+   if (advanceTimerRef.current) {
+    window.clearTimeout(advanceTimerRef.current);
+   }
+   if (triviaTimerRef.current) {
+    window.clearTimeout(triviaTimerRef.current);
+   }
+  };
+ }, []);
+
  async function loadQuotes() {
   setLoading(true);
-  setPremiumBlocked(false);
   setCurrentIndex(0);
   setScore(0);
   setAnswer("");
@@ -129,40 +144,12 @@ export default function SoloGame() {
   setGameFinished(false);
   setFinishNote(null);
   setHistoryRecorded(false);
+  setTrivia(null);
+  triviaEnabledRef.current = true;
+  setTriviaEnabled(true);
 
   const nextAccount = await getAccount();
   setAccount(nextAccount);
-
-  if (
-   isMixCategory(category) &&
-   !isPremium(nextAccount)
-  ) {
-   setQuotes([]);
-   setPremiumBlocked(true);
-   setLoading(false);
-   return;
-  }
-
-  if (
-   normalizeCategory(category).replace(/\s+/g, "") ===
-    "trivia" &&
-   !isPremium(nextAccount)
-  ) {
-   setQuotes([]);
-   setPremiumBlocked(true);
-   setLoading(false);
-   return;
-  }
-
-  if (
-   isLyricsCategory(category) &&
-   !isPremiumPlus(nextAccount)
-  ) {
-   setQuotes([]);
-   setPremiumBlocked(true);
-   setLoading(false);
-   return;
-  }
 
   if (isLyricsCategory(category)) {
    navigate("/lyrics", {
@@ -236,6 +223,7 @@ export default function SoloGame() {
  useEffect(() => {
   if (quotes.length === 0) return;
   if (gameFinished) return;
+  if (showResult || trivia) return;
 
   setTimeLeft(QUESTION_TIME);
 
@@ -256,20 +244,21 @@ export default function SoloGame() {
   }, 1000);
 
   return () => clearInterval(interval);
- }, [currentIndex, quotes.length]);
+ }, [currentIndex, quotes.length, showResult, trivia, gameFinished]);
 
 function handleTimeout() {
+  if (showResult) return;
   setShowResult(true);
   setIsCorrect(false);
   playSoundEffect("incorrect");
 
-  setTimeout(() => {
-   nextQuestion();
-  }, 2000);
+  advanceTimerRef.current = setTimeout(() => {
+   beginTrivia(currentQuestion);
+  }, 1500);
  }
 
  function submitAnswer() {
-  if (!currentQuestion) return;
+  if (!currentQuestion || showResult) return;
 
   const correct =
    normalizeAnswer(answer) ===
@@ -285,14 +274,51 @@ function handleTimeout() {
    setScore((prev) => prev + 1);
   }
 
-  setTimeout(() => {
+  advanceTimerRef.current = setTimeout(() => {
+   beginTrivia(currentQuestion);
+  }, 1500);
+ }
+
+ function beginTrivia(question) {
+  if (!triviaEnabledRef.current) {
    nextQuestion();
-  }, 2000);
+   return;
+  }
+
+  const fact =
+   question?.trivia_fact ||
+   `Did you know? The answer was: ${question?.answer || ""}`;
+
+  setTrivia({
+   answer: question?.answer || "",
+   fact,
+   posterUrl: question?.poster_url || null
+  });
+
+  triviaTimerRef.current = setTimeout(
+   nextQuestion,
+   TRIVIA_DURATION_MS
+  );
+ }
+
+ function skipTrivia() {
+  if (triviaTimerRef.current) {
+   clearTimeout(triviaTimerRef.current);
+   triviaTimerRef.current = null;
+  }
+  nextQuestion();
+ }
+
+ function turnOffTrivia() {
+  triviaEnabledRef.current = false;
+  setTriviaEnabled(false);
+  skipTrivia();
  }
 
  function nextQuestion() {
   setShowResult(false);
   setAnswer("");
+  setTrivia(null);
 
   if (currentIndex + 1 >= quotes.length) {
    setGameFinished(true);
@@ -310,6 +336,9 @@ function handleTimeout() {
   setGameFinished(false);
   setFinishNote(null);
   setHistoryRecorded(false);
+  setTrivia(null);
+  triviaEnabledRef.current = true;
+  setTriviaEnabled(true);
 
   const reshuffled = [...quotes].sort(
    () => Math.random() - 0.5
@@ -373,38 +402,6 @@ function handleTimeout() {
   );
  }
 
- if (premiumBlocked) {
-  return (
-   <div className="min-h-screen bg-black text-white flex items-center justify-center p-6 text-center">
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-lg">
-     <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-4">
-      Premium Mix
-     </p>
-     <h1 className="text-4xl font-bold mb-4">
-      Want to play different categories at the same time?
-     </h1>
-      <p className="text-zinc-400 leading-relaxed mb-8">
-      Upgrade to Premium to choose multiple categories and play them together in solo and multiplayer.
-     </p>
-     <div className="grid gap-3">
-      <button
-       onClick={() => navigate("/payment")}
-       className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
-      >
-       Upgrade to Premium
-      </button>
-      <button
-       onClick={() => navigate("/categories")}
-       className="bg-zinc-800 px-6 py-3 rounded-lg font-bold"
-      >
-       Choose Another Category
-      </button>
-     </div>
-    </div>
-   </div>
-  );
- }
-
  if (!quotes.length) {
   return (
    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center gap-4 px-4 text-center">
@@ -432,6 +429,10 @@ function handleTimeout() {
  if (gameFinished) {
   return (
    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center px-4 text-center">
+    <DonateModal
+     open={showDonate}
+     onClose={() => setShowDonate(false)}
+    />
     <h1 className="text-5xl font-bold mb-6">
      Game Finished
     </h1>
@@ -458,6 +459,12 @@ function handleTimeout() {
 
     <div className="flex gap-4 flex-wrap justify-center">
      <button
+      onClick={() => setShowDonate(true)}
+      className="bg-yellow-400 text-black px-6 py-3 rounded-xl font-bold"
+     >
+      Buy us a chai - Donate
+     </button>
+     <button
       onClick={restartGame}
       className="bg-green-500 px-6 py-3 rounded-xl font-bold"
      >
@@ -477,6 +484,45 @@ function handleTimeout() {
 
  return (
   <div className="min-h-screen bg-black text-white px-4 py-10 flex justify-center items-center">
+   {trivia && (
+    <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-6 overflow-y-auto">
+     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden max-w-2xl w-full">
+      {trivia.posterUrl && (
+       <img
+        src={trivia.posterUrl}
+        alt={trivia.answer}
+        className="w-full h-64 sm:h-[420px] object-cover"
+       />
+      )}
+      <div className="p-5 sm:p-8">
+       <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-3">
+        Trivia
+       </p>
+       <h2 className="text-3xl sm:text-4xl font-bold mb-4">
+        {trivia.answer}
+       </h2>
+       <p className="text-zinc-300 text-lg mb-8 leading-relaxed">
+        {trivia.fact}
+       </p>
+       <div className="flex gap-3 flex-wrap">
+        <button
+         onClick={skipTrivia}
+         className="bg-yellow-400 text-black px-6 py-3 rounded-lg font-bold"
+        >
+         Skip
+        </button>
+        <button
+         onClick={turnOffTrivia}
+         className="bg-zinc-700 px-6 py-3 rounded-lg font-bold"
+        >
+         Turn Off Trivia
+        </button>
+       </div>
+      </div>
+     </div>
+    </div>
+   )}
+
    <div className="w-full max-w-3xl bg-zinc-900 rounded-2xl p-8 border border-zinc-700">
     <div className="flex justify-between items-center mb-6">
      <div>
@@ -559,6 +605,12 @@ function handleTimeout() {
        </div>
       )}
      </div>
+    )}
+
+    {!triviaEnabled && (
+     <p className="text-zinc-500 text-xs mt-4 text-center">
+      Trivia screen turned off for this run.
+     </p>
     )}
    </div>
   </div>

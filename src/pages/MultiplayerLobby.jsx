@@ -17,9 +17,6 @@ import {
  getPlanLabel,
  getPlayHistory,
  refreshAccount,
- getTrialCreditsLeft,
- isPremium,
- isPremiumPlus,
  onAccountChange,
  requestPasswordReset,
  resendConfirmationEmail,
@@ -28,14 +25,17 @@ import {
  updateEmail,
  updatePassword,
  updateProfile,
- uploadAvatar,
- useTrialCredit
+ uploadAvatar
 } from "../lib/account";
 import {
  getInsight,
  getPlayerTitle
 } from "../lib/playerStats";
 import { playSoundEffect } from "../lib/audio";
+import LyricsLanguageModal, {
+ LYRICS_LANGUAGES
+} from "../components/LyricsLanguageModal";
+import DonateModal from "../components/DonateModal";
 
 const mixCategoryOptions = [
  {
@@ -173,6 +173,26 @@ export default function MultiplayerLobby() {
   useState(false);
  const [playHistory, setPlayHistory] =
   useState([]);
+ const [lyricsLanguage, setLyricsLanguage] =
+  useState("");
+ const [lyricsModalOpen, setLyricsModalOpen] =
+  useState(false);
+ const [showDonate, setShowDonate] = useState(false);
+ const [authOverlayOpen, setAuthOverlayOpen] =
+  useState(false);
+
+ const openAuthOverlay = (mode = "signin") => {
+  setAuthMode(mode);
+  setAuthMessage("");
+  setShowResetPrompt(false);
+  setAuthOverlayOpen(true);
+ };
+
+ const closeAuthOverlay = () => {
+  setAuthOverlayOpen(false);
+  setAuthMessage("");
+  setShowResetPrompt(false);
+ };
 
  useEffect(() => {
   window.scrollTo({
@@ -213,6 +233,18 @@ export default function MultiplayerLobby() {
    setSelectedCategory(
     categoryParam.toLowerCase()
    );
+  }
+
+  const languageParam = (
+   searchParams.get("language") || ""
+  ).toLowerCase();
+
+  if (
+   categoryParam &&
+   categoryParam.toLowerCase() === "lyrics" &&
+   LYRICS_LANGUAGES.includes(languageParam)
+  ) {
+   setLyricsLanguage(languageParam);
   }
 
   if (mixParam) {
@@ -362,10 +394,6 @@ export default function MultiplayerLobby() {
   };
  }, [account]);
 
- const trialCreditsLeft =
-  getTrialCreditsLeft(account);
- const hasPremium = isPremium(account);
- const hasPremiumPlus = isPremiumPlus(account);
  const playerTitle = getPlayerTitle(playHistory);
  const playerInsight = getInsight(playHistory);
  const planLabel = getPlanLabel(
@@ -451,6 +479,23 @@ export default function MultiplayerLobby() {
  };
 
  const showEmailGate = () => {
+  if (!account) {
+   setGateNotice({
+    eyebrow: "Room blocked",
+    title: "Supabase rejected this request.",
+    body:
+     "Your Supabase row-level security is blocking guest writes. Either sign in, or update RLS policies on rooms/room_players to allow anonymous inserts.",
+    primaryLabel: "Sign in",
+    secondaryLabel: "Close",
+    onPrimary: () => {
+     setGateNotice(null);
+     openAuthOverlay("signin");
+    },
+    onSecondary: () => setGateNotice(null)
+   });
+   return;
+  }
+
   setGateNotice({
    eyebrow: "Email confirmation required",
    title: "Confirm your email to create rooms.",
@@ -481,50 +526,6 @@ export default function MultiplayerLobby() {
      });
     }
    },
-   onSecondary: () => setGateNotice(null)
-  });
- };
-
- const showRoomLimitGate = () => {
-  setGateNotice({
-   eyebrow: "Free trial complete",
-   title:
-    "You have used your 2 free hosted rooms.",
-   body:
-    "Upgrade once to keep creating rooms, invite friends without trial limits, and unlock the full multiplayer hosting experience.",
-   primaryLabel: "View Premium Plans",
-   secondaryLabel: "Maybe later",
-   onPrimary: () => navigate("/payment"),
-   onSecondary: () => setGateNotice(null)
-  });
- };
-
- const showMixPremiumGate = () => {
-  setGateNotice({
-   eyebrow: "Premium Mix",
-   title:
-    "Want to play different categories at the same time?",
-   body:
-    "Upgrade to Premium to choose multiple categories and play them together in multiplayer and solo.",
-   primaryLabel: "Upgrade to Premium",
-   secondaryLabel: "Choose another category",
-   onPrimary: () => navigate("/payment"),
-   onSecondary: () => {
-    setSelectedCategory("hollywood");
-    setGateNotice(null);
-   }
-  });
- };
-
- const showLyricsPremiumPlusGate = () => {
-  setGateNotice({
-   eyebrow: "Premium Plus",
-   title: "Complete the Lyrics is locked.",
-   body:
-    "Premium Plus unlocks early access to the Complete the Lyrics game section in solo and multiplayer.",
-   primaryLabel: "Upgrade to Premium Plus",
-   secondaryLabel: "Maybe later",
-   onPrimary: () => navigate("/payment"),
    onSecondary: () => setGateNotice(null)
   });
  };
@@ -653,8 +654,10 @@ export default function MultiplayerLobby() {
     !nextAccount?.emailConfirmed
    ) {
     setAuthMessage(
-     "Account created. Check your inbox and spam folder for the confirmation email before creating rooms."
+     "Account created. Check your inbox and spam folder for the confirmation email - you can keep playing as a guest in the meantime."
     );
+   } else {
+    setAuthOverlayOpen(false);
    }
   } catch (error) {
    const message = String(error.message || "");
@@ -696,48 +699,15 @@ export default function MultiplayerLobby() {
 
  const createRoom = async () => {
   try {
-   if (!account) {
-    setGateNotice({
-     eyebrow: "Account required",
-     title: "Sign in to host a room.",
-     body:
-      "Your account keeps room credits, premium status, and host access attached to you.",
-     primaryLabel: "Close",
-     onPrimary: () => setGateNotice(null)
-    });
-    return;
-   }
-
-   if (!account.emailConfirmed) {
-    showEmailGate();
-    return;
-   }
-
    if (
-    !hasPremium &&
-    trialCreditsLeft <= 0
+    selectedCategory === "lyrics" &&
+    !lyricsLanguage
    ) {
-    showRoomLimitGate();
+    setLyricsModalOpen(true);
     return;
    }
 
-   if (
-    selectedCategory === "mix" &&
-    !hasPremium
-   ) {
-    showMixPremiumGate();
-    return;
-   }
-
-  if (
-   selectedCategory === "lyrics" &&
-   !hasPremiumPlus
-  ) {
-    showLyricsPremiumPlusGate();
-    return;
-   }
-
-   if (!username) {
+   if (!username.trim()) {
     alert("Enter username");
     return;
    }
@@ -749,47 +719,51 @@ export default function MultiplayerLobby() {
 
    const playerId = getPlayerId();
 
-   const { error } = await supabase
+   const baseInsert = {
+    room_code: code,
+    host_id: playerId,
+    current_question: 0,
+    game_started: false,
+    category: selectedCategory,
+    total_rounds: selectedRounds,
+    endless_mode: endlessMode,
+    question_duration: questionDuration,
+    game_finished: false,
+    show_trivia: true,
+    processing_answer: false,
+    max_players: maxPlayers,
+    mix_categories:
+     selectedCategory === "mix"
+      ? selectedMixCategories
+      : null,
+    plan_required: PLANS.FREE
+   };
+
+   const insertWithLanguage =
+    selectedCategory === "lyrics" &&
+    lyricsLanguage
+     ? {
+        ...baseInsert,
+        lyrics_language: lyricsLanguage
+       }
+     : baseInsert;
+
+   let { error } = await supabase
     .from("rooms")
-    .insert({
-     room_code: code,
+    .insert(insertWithLanguage);
 
-     host_id: playerId,
+   if (
+    error &&
+    /lyrics_language|schema cache|column/i.test(
+     error.message || ""
+    )
+   ) {
+    const fallback = await supabase
+     .from("rooms")
+     .insert(baseInsert);
 
-     current_question: 0,
-
-     game_started: false,
-
-     category: selectedCategory,
-
-     total_rounds: selectedRounds,
-
-     endless_mode: endlessMode,
-
-     question_duration:
-      questionDuration,
-
-     game_finished: false,
-
-     show_trivia: true,
-
-     processing_answer: false,
-
-     max_players:
-      hasPremiumPlus ? maxPlayers : 2,
-
-     mix_categories:
-      selectedCategory === "mix"
-       ? selectedMixCategories
-       : null,
-
-     plan_required:
-      hasPremiumPlus
-       ? PLANS.PREMIUM_PLUS
-       : hasPremium
-        ? PLANS.PREMIUM
-        : PLANS.FREE
-    });
+    error = fallback.error;
+   }
 
    if (error) throw error;
 
@@ -799,26 +773,22 @@ export default function MultiplayerLobby() {
 
      player_id: playerId,
 
-     account_id: account.id,
+     account_id: account?.id || null,
 
-     avatar_url: account.avatarUrl || null,
+     avatar_url: account?.avatarUrl || null,
 
-     username,
+     username: username.trim(),
 
      score: 0
      });
 
    if (playerError) throw playerError;
 
-   if (!hasPremium) {
-    const nextAccount =
-     await useTrialCredit(account);
-    setAccount(nextAccount);
-   }
-
    playSoundEffect("roomCreate");
    navigate(
-    `/room/${code}?account=${account.id}`
+    account?.id
+     ? `/room/${code}?account=${account.id}`
+     : `/room/${code}`
    );
   } catch (error) {
    console.error(error);
@@ -827,22 +797,7 @@ export default function MultiplayerLobby() {
  };
 
  const joinRoom = async () => {
-  if (!account) {
-   alert(
-    "Login or create an account to join multiplayer."
-   );
-   return;
-  }
-
-   if (
-    selectedCategory === "trivia" &&
-    !hasPremium
-   ) {
-    showMixPremiumGate();
-    return;
-   }
-
-  if (!username) {
+  if (!username.trim()) {
    alert("Enter username");
    return;
   }
@@ -899,11 +854,11 @@ export default function MultiplayerLobby() {
 
       player_id: playerId,
 
-      account_id: account.id,
+      account_id: account?.id || null,
 
-      avatar_url: account.avatarUrl || null,
+      avatar_url: account?.avatarUrl || null,
 
-      username,
+      username: username.trim(),
 
       score: 0
     });
@@ -917,12 +872,188 @@ export default function MultiplayerLobby() {
 
   playSoundEffect("roomJoin");
   navigate(
-   `/room/${upperCode}?account=${account.id}`
+   account?.id
+    ? `/room/${upperCode}?account=${account.id}`
+    : `/room/${upperCode}`
   );
  };
 
  return (
   <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4 sm:p-6">
+   <LyricsLanguageModal
+    open={lyricsModalOpen}
+    onClose={() => setLyricsModalOpen(false)}
+    onSelect={(value) => {
+     setLyricsLanguage(value);
+     setSelectedCategory("lyrics");
+     setLyricsModalOpen(false);
+    }}
+    title="Pick a language for your room"
+    subtitle="Everyone in the room will get questions from this language."
+   />
+
+   <DonateModal
+    open={showDonate}
+    onClose={() => setShowDonate(false)}
+   />
+
+   {authOverlayOpen && authMode !== "recovery" && (
+    <div className="fixed inset-0 z-[65] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+     <form
+      onSubmit={handleAuth}
+      className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl my-6"
+     >
+      <div className="flex items-start justify-between gap-3 mb-5">
+       <div>
+        <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-2">
+         Optional account
+        </p>
+        <h2 className="text-3xl font-bold leading-tight">
+         {authMode === "signup"
+          ? "Create an account"
+          : "Sign in"}
+        </h2>
+       </div>
+       <button
+        type="button"
+        onClick={closeAuthOverlay}
+        className="h-10 w-10 rounded-full bg-zinc-900 border border-zinc-700 font-bold"
+        aria-label="Close"
+       >
+        x
+       </button>
+      </div>
+
+      <p className="text-zinc-400 leading-relaxed mb-5">
+       Optional. Signing in saves your match history, wins, and lets you keep the same identity across devices.
+      </p>
+
+      {authMessage && (
+       <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-100 rounded-lg p-4 mb-5">
+        {authMessage}
+       </div>
+      )}
+
+      {(showResetPrompt || authMode === "signin") && (
+       <button
+        type="button"
+        onClick={async () => {
+         if (!accountEmail.trim()) {
+          setAuthMessage(
+           "Enter your email first."
+          );
+          return;
+         }
+
+         try {
+          await requestPasswordReset(
+           accountEmail
+          );
+          setAuthMessage(
+           "Password reset email sent. Check your inbox."
+          );
+         } catch (error) {
+          setAuthMessage(error.message);
+         }
+        }}
+        className="w-full bg-zinc-950 border border-zinc-700 p-3 rounded-lg font-bold mb-4 text-sm"
+       >
+        Reset password
+       </button>
+      )}
+
+      {authMode === "signup" && (
+       <input
+        value={accountName}
+        onChange={(event) =>
+         setAccountName(event.target.value)
+        }
+        placeholder="Name"
+        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-4"
+       />
+      )}
+
+      <input
+       value={accountEmail}
+       onChange={(event) =>
+        setAccountEmail(event.target.value)
+       }
+       placeholder="Email"
+       type="email"
+       className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-4"
+      />
+
+      <input
+       value={accountPassword}
+       onChange={(event) =>
+        setAccountPassword(event.target.value)
+       }
+       placeholder="Password"
+       type="password"
+       className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
+      />
+
+      <button
+       type="submit"
+       disabled={authSubmitting}
+       className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold disabled:opacity-60"
+      >
+       {authSubmitting
+        ? "Working..."
+        : authMode === "signup"
+         ? "Create Account"
+         : "Sign in"}
+      </button>
+
+      <button
+       type="button"
+       onClick={() =>
+        setAuthMode(
+         authMode === "signup"
+          ? "signin"
+          : "signup"
+        )
+       }
+       className="w-full bg-zinc-800 border border-zinc-700 p-3 rounded-lg font-bold mt-3 text-sm"
+      >
+       {authMode === "signup"
+        ? "I already have an account"
+        : "Create a new account"}
+      </button>
+
+      {authMode === "signup" &&
+       accountEmail.trim() && (
+        <button
+         type="button"
+         onClick={async () => {
+          try {
+           await resendConfirmationEmail(
+            accountEmail
+           );
+           setAuthMessage(
+            "Confirmation email requested again. Check inbox, spam, and promotions."
+           );
+          } catch (error) {
+           setAuthMessage(error.message);
+          }
+         }}
+         className="w-full bg-zinc-950 border border-zinc-700 p-3 rounded-lg font-bold mt-3 text-sm"
+        >
+         Resend confirmation email
+        </button>
+       )}
+
+      <button
+       type="button"
+       onClick={closeAuthOverlay}
+       className="w-full bg-zinc-900 border border-zinc-800 p-3 rounded-lg font-bold mt-3 text-sm"
+      >
+       Skip and play as guest
+      </button>
+     </form>
+    </div>
+   )}
+
    {gateNotice && (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
@@ -974,223 +1105,74 @@ export default function MultiplayerLobby() {
        Checking account...
       </p>
      </div>
-    ) : !account || authMode === "recovery" ? (
+    ) : authMode === "recovery" ? (
      <form
       onSubmit={handleAuth}
       className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-8"
      >
-      {authSubmitting && authMode === "signup" && (
-       <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-6 text-center shadow-2xl">
-         <p className="text-yellow-400 uppercase tracking-[0.25em] text-xs mb-4">
-          Getting things ready for you
-         </p>
-         <h2 className="text-2xl font-bold mb-3">
-          Creating your account
-         </h2>
-         <p className="text-zinc-400">
-          Hang tight while we set up your profile and confirmation email.
-         </p>
-        </div>
-       </div>
-      )}
-
       <p className="text-yellow-400 uppercase tracking-[0.25em] text-sm mb-3">
-       {authMode === "recovery"
-        ? "Reset Password"
-        : "Account Required"}
+       Reset Password
       </p>
 
       <h1 className="text-4xl sm:text-5xl font-bold mb-5">
-       {authMode === "recovery"
-        ? "Choose a new password"
-        : authMode === "signup"
-         ? "Create an account"
-         : "Login to multiplayer"}
+       Choose a new password
       </h1>
 
       <p className="text-zinc-400 leading-relaxed mb-8">
-       {authMode === "recovery"
-        ? "Your reset link is active. Set a fresh password to continue."
-        : "Multiplayer includes 2 free hosted rooms. After that, Premium unlocks unlimited game room creation and playing with friends."}
+       Your reset link is active. Set a fresh password to continue.
       </p>
 
-      {authMessage && (
+      {recoveryMessage && (
        <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-100 rounded-lg p-4 mb-5">
-        {authMessage}
+        {recoveryMessage}
        </div>
       )}
 
-      {authMode === "recovery" ? (
-       <>
-        {recoveryMessage && (
-         <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-100 rounded-lg p-4 mb-5">
-          {recoveryMessage}
-         </div>
-        )}
-
-        <input
-         value={recoveryPassword}
-         onChange={(event) =>
-          setRecoveryPassword(
-           event.target.value
-          )
-         }
-         placeholder="New password"
-         type="password"
-         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
-        />
-
-        <input
-         value={recoveryPasswordConfirm}
-         onChange={(event) =>
-          setRecoveryPasswordConfirm(
-           event.target.value
-          )
-         }
-         placeholder="Confirm new password"
-         type="password"
-         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
-        />
-
-        <button
-         type="submit"
-         disabled={recoveryLoading}
-         className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold disabled:opacity-60"
-        >
-         {recoveryLoading
-          ? "Updating..."
-          : "Update Password"}
-        </button>
-
-        <button
-         type="button"
-         onClick={() => {
-          setAuthMode("signin");
-          setRecoveryMessage("");
-          navigate(
-           "/multiplayer?auth=signin",
-           { replace: true }
-          );
-         }}
-         className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg font-bold mt-4"
-        >
-         Back to login
-        </button>
-       </>
-      ) : (
-       <>
-
-      {(showResetPrompt || authMode === "signin") && (
-       <button
-        type="button"
-        onClick={async () => {
-         if (!accountEmail.trim()) {
-          setAuthMessage(
-           "Enter your email first."
-          );
-          return;
-         }
-
-         try {
-          await requestPasswordReset(
-           accountEmail
-          );
-          setAuthMessage(
-           "Password reset email sent. Check your inbox."
-          );
-         } catch (error) {
-          setAuthMessage(error.message);
-         }
-        }}
-        className="w-full bg-zinc-950 border border-zinc-700 p-4 rounded-lg font-bold mb-5"
-       >
-        Reset password
-       </button>
-      )}
-
-      {authMode === "signup" && (
-       <input
-        value={accountName}
-        onChange={(e) =>
-         setAccountName(e.target.value)
-        }
-        placeholder="Name"
-        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
-       />
-      )}
-
       <input
-       value={accountEmail}
-       onChange={(e) =>
-        setAccountEmail(e.target.value)
+       value={recoveryPassword}
+       onChange={(event) =>
+        setRecoveryPassword(event.target.value)
        }
-       placeholder="Email"
-       type="email"
+       placeholder="New password"
+       type="password"
        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
       />
 
       <input
-       value={accountPassword}
-       onChange={(e) =>
-        setAccountPassword(e.target.value)
+       value={recoveryPasswordConfirm}
+       onChange={(event) =>
+        setRecoveryPasswordConfirm(
+         event.target.value
+        )
        }
-       placeholder="Password"
+       placeholder="Confirm new password"
        type="password"
        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg mb-5"
       />
 
       <button
        type="submit"
-       disabled={authSubmitting}
-       className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold"
+       disabled={recoveryLoading}
+       className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold disabled:opacity-60"
       >
-       {authSubmitting
-        ? "Working..."
-        : authMode === "signup"
-         ? "Create Account"
-         : "Login"}
+       {recoveryLoading
+        ? "Updating..."
+        : "Update Password"}
       </button>
 
       <button
        type="button"
-       onClick={() =>
-        setAuthMode(
-         authMode === "signup"
-          ? "signin"
-          : "signup"
-        )
-       }
+       onClick={() => {
+        setAuthMode("signin");
+        setRecoveryMessage("");
+        navigate("/multiplayer", {
+         replace: true
+        });
+       }}
        className="w-full bg-zinc-800 border border-zinc-700 p-4 rounded-lg font-bold mt-4"
       >
-       {authMode === "signup"
-        ? "I already have an account"
-       : "Create a new account"}
+       Back to lobby
       </button>
-
-      {authMode === "signup" &&
-       accountEmail.trim() && (
-        <button
-         type="button"
-         onClick={async () => {
-          try {
-           await resendConfirmationEmail(
-            accountEmail
-           );
-           setAuthMessage(
-            "Confirmation email requested again. Check inbox, spam, and promotions."
-           );
-          } catch (error) {
-           setAuthMessage(error.message);
-          }
-         }}
-         className="w-full bg-zinc-950 border border-zinc-700 p-4 rounded-lg font-bold mt-4"
-        >
-         Resend confirmation email
-        </button>
-       )}
-       </>
-      )}
      </form>
     ) : (
     <div
@@ -1205,75 +1187,99 @@ export default function MultiplayerLobby() {
      <h1 className="text-4xl sm:text-5xl font-bold">
        Multiplayer
       </h1>
-      <p className="text-white text-xl mt-4">
-       Welcome back, {account.name || "Player"}.
-      </p>
-     <p className="text-zinc-400 mt-4">
-       {account.name || account.email} -{" "}
-       {getPlanLabel(account.plan)}
-       {account.plan === PLANS.FREE &&
-        ` - ${trialCreditsLeft} free room${
-         trialCreditsLeft === 1 ? "" : "s"
-        } left`}
-      </p>
-      {!account.emailConfirmed && (
-       <div className="text-yellow-300 mt-3">
-        <p>
-         Confirm your email before creating rooms.
+      {account ? (
+       <>
+        <p className="text-white text-xl mt-4">
+         Welcome back, {account.name || "Player"}.
         </p>
+        <p className="text-zinc-400 mt-4">
+         {account.name || account.email}
+        </p>
+        {!account.emailConfirmed && (
+         <div className="text-yellow-300 mt-3">
+          <p>
+           Confirm your email to keep progress synced. You can already host rooms either way.
+          </p>
+          <button
+           onClick={async () => {
+            try {
+             await resendConfirmationEmail(
+              account.email
+             );
+             setGateNotice({
+              eyebrow: "Email sent",
+              title: "Check your inbox.",
+              body:
+               "We asked Supabase to send another confirmation email. Also check spam or promotions.",
+              primaryLabel: "Close",
+              onPrimary: () =>
+               setGateNotice(null)
+             });
+            } catch (error) {
+             setGateNotice({
+              eyebrow: "Email not sent",
+              title:
+               "Supabase rejected the resend.",
+              body: error.message,
+              primaryLabel: "Close",
+              onPrimary: () =>
+               setGateNotice(null)
+             });
+            }
+           }}
+           className="mt-3 bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg font-bold text-white"
+          >
+           Resend confirmation email
+          </button>
+         </div>
+        )}
         <button
          onClick={async () => {
-          try {
-           await resendConfirmationEmail(
-            account.email
-           );
-           setGateNotice({
-            eyebrow: "Email sent",
-            title: "Check your inbox.",
-            body:
-             "We asked Supabase to send another confirmation email. Also check spam or promotions.",
-            primaryLabel: "Close",
-            onPrimary: () =>
-             setGateNotice(null)
-           });
-          } catch (error) {
-           setGateNotice({
-            eyebrow: "Email not sent",
-            title:
-             "Supabase rejected the resend.",
-            body: error.message,
-            primaryLabel: "Close",
-            onPrimary: () =>
-             setGateNotice(null)
-           });
-          }
+          await signOutAccount();
+          setAccount(null);
          }}
-         className="mt-3 bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg font-bold text-white"
+         className="mt-4 bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg font-bold"
         >
-         Resend confirmation email
+         Sign Out
         </button>
-       </div>
+        <button
+         onClick={() =>
+          setProfileOpen((open) => !open)
+         }
+         className="mt-4 ml-3 bg-yellow-400 text-black border border-yellow-400 px-4 py-2 rounded-lg font-bold"
+        >
+         Profile
+        </button>
+       </>
+      ) : (
+       <>
+        <p className="text-white text-xl mt-4">
+         Hop in as a guest, or sign in to save your progress.
+        </p>
+        <p className="text-zinc-400 mt-4">
+         No account needed - hosting and joining rooms is open to everyone. Signing in keeps your match history and stats across devices.
+        </p>
+        <div className="flex flex-wrap gap-3 mt-5">
+         <button
+          type="button"
+          onClick={() => openAuthOverlay("signin")}
+          className="bg-yellow-400 text-black px-4 py-2 rounded-lg font-bold"
+         >
+          Sign in
+         </button>
+         <button
+          type="button"
+          onClick={() => openAuthOverlay("signup")}
+          className="bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg font-bold"
+         >
+          Create account
+         </button>
+        </div>
+       </>
       )}
-      <button
-       onClick={async () => {
-        await signOutAccount();
-        setAccount(null);
-       }}
-       className="mt-4 bg-zinc-800 border border-zinc-700 px-4 py-2 rounded-lg font-bold"
-      >
-       Sign Out
-      </button>
-      <button
-       onClick={() =>
-        setProfileOpen((open) => !open)
-       }
-       className="mt-4 ml-3 bg-yellow-400 text-black border border-yellow-400 px-4 py-2 rounded-lg font-bold"
-      >
-       Profile
-      </button>
      </div>
 
-     {profileOpen && (
+     {profileOpen && account && (
       <div className="border border-zinc-700 bg-zinc-950 rounded-2xl p-5 mb-6">
        <div className="flex items-center gap-4 mb-5">
         <div className="h-16 w-16 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center text-2xl font-bold">
@@ -1300,17 +1306,6 @@ export default function MultiplayerLobby() {
           <span className="rounded-full border border-yellow-400/40 bg-yellow-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-yellow-300">
            {planLabel}
           </span>
-          {isPremiumPlus(account) && (
-           <span className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-300">
-            Premium Plus badge
-           </span>
-          )}
-          {isPremium(account) &&
-           !isPremiumPlus(account) && (
-            <span className="rounded-full border border-yellow-400/40 bg-yellow-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-yellow-300">
-             Premium badge
-            </span>
-           )}
          </div>
         </div>
        </div>
@@ -1412,6 +1407,14 @@ export default function MultiplayerLobby() {
         )}
        </form>
 
+       <button
+        type="button"
+        onClick={() => setShowDonate(true)}
+        className="w-full bg-yellow-400 text-black p-4 rounded-lg font-bold mb-6"
+       >
+        Buy us a chai - Donate
+       </button>
+
        {playHistory.length > 0 && (
         <div className="grid gap-3 max-h-72 overflow-auto pr-1">
          {playHistory.map((item) => (
@@ -1467,16 +1470,10 @@ export default function MultiplayerLobby() {
          key={option.value}
          type="button"
          onClick={() => {
-          if (
-           (option.value === "mix" ||
-            option.value === "trivia") &&
-           !hasPremium
-          ) {
-           showMixPremiumGate();
-           return;
-          }
-
           setSelectedCategory(option.value);
+          if (option.value !== "lyrics") {
+           setLyricsLanguage("");
+          }
          }}
          className={`border p-4 rounded-lg font-bold text-left ${
           active
@@ -1583,8 +1580,7 @@ export default function MultiplayerLobby() {
       : "Enable Endless Mode"}
     </button>
 
-    {hasPremiumPlus && (
-     <select
+    <select
       value={maxPlayers}
       onChange={(e) =>
        setMaxPlayers(
@@ -1605,7 +1601,6 @@ export default function MultiplayerLobby() {
        </option>
       ))}
      </select>
-    )}
 
     <button
      onClick={createRoom}
@@ -1645,36 +1640,44 @@ export default function MultiplayerLobby() {
         Complete the Lyrics
        </h2>
        <p className="text-zinc-400 mt-2">
-        {hasPremiumPlus
-         ? "Premium Plus early access unlocked."
-         : "Locked until Premium Plus is active."}
+        Pick a language and the room is yours.
+        {selectedCategory === "lyrics" && lyricsLanguage && (
+         <span className="ml-2 capitalize text-yellow-300">
+          ({lyricsLanguage})
+         </span>
+        )}
        </p>
       </div>
-      <span className={`text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border ${
-       hasPremiumPlus
-        ? "text-cyan-300 border-cyan-400/40 bg-cyan-400/10"
-        : "text-yellow-300 border-yellow-500/40"
-      }`}>
-       {hasPremiumPlus ? "Unlocked" : "Premium Plus"}
+      <span className="text-xs uppercase tracking-[0.2em] rounded-full px-3 py-1 border text-cyan-300 border-cyan-400/40 bg-cyan-400/10">
+       Unlocked
       </span>
      </div>
-     <button
-      type="button"
-      onClick={() => {
-       if (!hasPremiumPlus) {
-       showLyricsPremiumPlusGate();
-       return;
-      }
-       setSelectedCategory("lyrics");
-      }}
-      className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
-     >
-      {hasPremiumPlus
-       ? selectedCategory === "lyrics"
-        ? "Lyrics Selected"
-        : "Select Lyrics Multiplayer"
-       : "Unlock Lyrics Multiplayer"}
-     </button>
+     <div className="flex flex-wrap gap-3">
+      <button
+       type="button"
+       onClick={() => {
+        setSelectedCategory("lyrics");
+        setLyricsModalOpen(true);
+       }}
+       className="bg-yellow-400 text-black px-5 py-3 rounded-lg font-bold"
+      >
+       {selectedCategory === "lyrics" && lyricsLanguage
+        ? "Change Language"
+        : "Pick Lyrics Language"}
+      </button>
+      {selectedCategory === "lyrics" && lyricsLanguage && (
+       <button
+        type="button"
+        onClick={() => {
+         setSelectedCategory("hollywood");
+         setLyricsLanguage("");
+        }}
+        className="bg-zinc-800 border border-zinc-700 px-5 py-3 rounded-lg font-bold"
+       >
+        Clear
+       </button>
+      )}
+     </div>
     </div>
     </div>
     )}
@@ -1682,23 +1685,23 @@ export default function MultiplayerLobby() {
     <div className="bg-white text-black rounded-2xl p-5 sm:p-8 flex flex-col justify-between">
      <div>
       <p className="uppercase tracking-[0.25em] text-sm text-zinc-500 mb-4">
-       Premium Hosting
+       Support the game
       </p>
 
       <h2 className="text-4xl font-bold mb-5">
-       Keep the party moving after your free rooms.
+       Everything is free. Donate if it made your night.
       </h2>
 
       <p className="text-zinc-600 leading-relaxed mb-8">
-       Start with 2 hosted rooms. Premium removes the hosting cap forever. Premium Plus adds big-room capacity and host controls for faster, cleaner games.
+       All categories, unlimited rooms, lyrics in three languages, host controls - all open to everyone. If you would like to chip in for servers and new content, the donate button opens PayPal and UPI.
       </p>
 
       <div className="grid gap-3 mb-8">
        {[
-        "Premium: lifetime unlimited hosted rooms",
-        "Premium Mix: all categories in one game",
-        "Premium Plus: rooms for up to 20 players",
-        "Premium Plus: host skip, end-question, and early modes"
+        "Unlimited hosted multiplayer rooms",
+        "Mix categories across game modes",
+        "Lyrics in English, Hindi and Punjabi",
+        "Host skip, end-question, and trivia controls"
        ].map((feature) => (
         <div
          key={feature}
@@ -1711,10 +1714,10 @@ export default function MultiplayerLobby() {
      </div>
 
      <button
-      onClick={() => navigate("/payment")}
+      onClick={() => setShowDonate(true)}
       className="bg-black text-white p-4 rounded-lg font-bold"
      >
-      View Premium Plans
+      Donate
      </button>
     </div>
    </div>
