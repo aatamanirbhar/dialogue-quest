@@ -17,6 +17,7 @@ import {
 } from "../lib/playerStats";
 import LyricsLanguageModal from "../components/LyricsLanguageModal";
 import DonateModal from "../components/DonateModal";
+import { useSEO, SEO_PRESETS } from "../lib/seo";
 
 const categories = [
  "hollywood",
@@ -53,6 +54,7 @@ const getLabel = (category) => {
 };
 
 export default function Categories() {
+ useSEO(SEO_PRESETS.categories);
  const navigate = useNavigate();
  const [account, setAccount] = useState(null);
  const [loadingAccount, setLoadingAccount] =

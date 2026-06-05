@@ -18,6 +18,15 @@ import {
  getRandomCompliment
 } from "../lib/playerStats";
 import { playSoundEffect } from "../lib/audio";
+import { useSEO, SEO_PRESETS } from "../lib/seo";
+
+const SOLO_SEO_BY_CATEGORY = {
+ hollywood: SEO_PRESETS.soloHollywood,
+ bollywood: SEO_PRESETS.soloBollywood,
+ tvshows: SEO_PRESETS.soloTv,
+ anime: SEO_PRESETS.soloAnime,
+ mix: SEO_PRESETS.soloMix
+};
 import DonateModal from "../components/DonateModal";
 
 const QUESTION_TIME = 30;
@@ -91,6 +100,14 @@ export default function SoloGame() {
  const navigate = useNavigate();
  const { category } = useParams();
  const [searchParams] = useSearchParams();
+
+ useSEO(
+  SOLO_SEO_BY_CATEGORY[category] || {
+   ...SEO_PRESETS.categories,
+   title: `Solo Quiz — ${category} | Dialogue Quest`,
+   path: `/solo/${category}`
+  }
+ );
 
  const [quotes, setQuotes] = useState([]);
  const [loading, setLoading] = useState(true);

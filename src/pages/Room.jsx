@@ -13,6 +13,7 @@ import {
 
 import { supabase } from "../lib/supabase";
 import { getPlayerId } from "../lib/player";
+import { useSEO } from "../lib/seo";
 import {
  getAccount,
  isPremium,
@@ -414,6 +415,12 @@ const getWinnerText = (players) => {
 export default function Room() {
  const navigate = useNavigate();
  const { code } = useParams();
+ useSEO({
+  title: `Room ${code || ""} — Dialogue Quest`,
+  description: "Private multiplayer game room.",
+  path: `/room/${code || ""}`,
+  noindex: true
+ });
  const [searchParams] = useSearchParams();
  const playerId = getPlayerId();
 

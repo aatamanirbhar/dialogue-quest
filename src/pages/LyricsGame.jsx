@@ -11,6 +11,7 @@ import LyricsLanguageModal, {
  LYRICS_LANGUAGES
 } from "../components/LyricsLanguageModal";
 import DonateModal from "../components/DonateModal";
+import { useSEO, SEO_PRESETS } from "../lib/seo";
 
 const QUESTION_TIME = 30;
 const TRIVIA_DURATION_MS = 5000;
@@ -150,6 +151,7 @@ const getActiveLyrics = async (language) => {
 };
 
 export default function LyricsGame() {
+ useSEO(SEO_PRESETS.lyrics);
  const navigate = useNavigate();
  const [searchParams, setSearchParams] = useSearchParams();
  const queryLanguage = (

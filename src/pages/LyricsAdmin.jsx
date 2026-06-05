@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { getAccount } from "../lib/account";
 import { LYRICS_LANGUAGES } from "../components/LyricsLanguageModal";
+import { useSEO } from "../lib/seo";
 
 const EMPTY_FORM = {
  prompt: "",
@@ -102,6 +103,12 @@ const parseOptions = (rawOptions) => {
 };
 
 export default function LyricsAdmin() {
+ useSEO({
+  title: "Admin — Dialogue Quest",
+  description: "Lyrics admin (private).",
+  path: "/admin/lyrics",
+  noindex: true
+ });
  const navigate = useNavigate();
  const [account, setAccount] = useState(null);
  const [loadingAccount, setLoadingAccount] =

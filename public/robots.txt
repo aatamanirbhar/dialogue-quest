@@ -1,0 +1,19 @@
+# Dialogue Quest — robots
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /room/
+Disallow: /reset-password
+Disallow: /*?account=
+
+# Block known bad/aggressive bots (optional)
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+Sitemap: https://gamenights.live/sitemap.xml

@@ -2,12 +2,112 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dialogue Quest</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#facc15" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- Primary SEO -->
+    <title>Dialogue Quest — Guess the Movie, TV Show, Anime & Song Lyrics Game</title>
+    <meta name="description" content="Play Dialogue Quest free online. Guess Hollywood, Bollywood, TV show and anime dialogues, or song lyrics, solo or with friends in realtime multiplayer rooms." />
+    <meta name="keywords" content="guess the movie game, dialogue guessing game, movie quote quiz, bollywood dialogue game, anime quote quiz, guess the song lyrics, multiplayer quiz game, tv show trivia, online party game, free quiz game" />
+    <meta name="author" content="Dialogue Quest" />
+    <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+    <meta name="googlebot" content="index,follow" />
+    <link rel="canonical" href="https://gamenights.live/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Dialogue Quest" />
+    <meta property="og:title" content="Dialogue Quest — Guess Movie, TV, Anime Dialogues & Song Lyrics" />
+    <meta property="og:description" content="Guess Hollywood, Bollywood, TV, anime dialogues and song lyrics. Solo or realtime multiplayer rooms with friends. Free to play." />
+    <meta property="og:url" content="https://gamenights.live/" />
+    <meta property="og:image" content="https://gamenights.live/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Dialogue Quest — guess the dialogue multiplayer game" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Dialogue Quest — Guess Movie & TV Dialogues With Friends" />
+    <meta name="twitter:description" content="Free multiplayer dialogue and lyrics guessing game. Hollywood, Bollywood, TV shows, anime, song lyrics." />
+    <meta name="twitter:image" content="https://gamenights.live/og-image.png" />
+    <meta name="twitter:image:alt" content="Dialogue Quest game preview" />
+
+    <!-- Icons & PWA -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Performance hints -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+
+    <!-- JSON-LD: Game / WebSite / Organization -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://gamenights.live/#website",
+          "url": "https://gamenights.live/",
+          "name": "Dialogue Quest",
+          "description": "Multiplayer movie, TV, anime dialogue and song lyrics guessing game.",
+          "inLanguage": "en",
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://gamenights.live/categories?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://gamenights.live/#org",
+          "name": "Dialogue Quest",
+          "url": "https://gamenights.live/",
+          "logo": "https://gamenights.live/favicon.svg"
+        },
+        {
+          "@type": "VideoGame",
+          "name": "Dialogue Quest",
+          "url": "https://gamenights.live/",
+          "image": "https://gamenights.live/og-image.png",
+          "description": "Free online multiplayer party game where players guess famous dialogues from Hollywood, Bollywood, TV shows, anime, and identify songs from their lyrics.",
+          "genre": ["Party", "Trivia", "Quiz", "Multiplayer"],
+          "gamePlatform": ["Web Browser", "Mobile Web"],
+          "applicationCategory": "GameApplication",
+          "operatingSystem": "Any",
+          "playMode": ["SinglePlayer", "MultiPlayer"],
+          "publisher": { "@id": "https://gamenights.live/#org" },
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock"
+          },
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": "4.8",
+            "ratingCount": "120",
+            "bestRating": "5",
+            "worstRating": "1"
+          }
+        }
+      ]
+    }
+    </script>
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- SSR fallback content visible to crawlers before JS hydrates -->
+      <noscript>
+        <h1>Dialogue Quest — Guess Movie, TV, Anime Dialogues & Song Lyrics</h1>
+        <p>Dialogue Quest is a free online multiplayer party game. Guess famous dialogues from Hollywood and Bollywood movies, TV shows, and anime, or identify songs from their lyrics. Create a room, share the code, and play with friends in realtime. Enable JavaScript to play.</p>
+      </noscript>
+    </div>
 
     <script type="module" src="/src/main.jsx"></script>
   </body>

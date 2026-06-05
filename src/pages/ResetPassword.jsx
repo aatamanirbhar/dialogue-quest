@@ -11,6 +11,7 @@ import {
  supabase,
  consumeAuthCodeFromUrl
 } from "../lib/supabase";
+import { useSEO } from "../lib/seo";
 
 const getUrlAuthMessage = () => {
  const searchParams = new URLSearchParams(
@@ -30,6 +31,12 @@ const getUrlAuthMessage = () => {
 };
 
 export default function ResetPassword() {
+ useSEO({
+  title: "Reset Password — Dialogue Quest",
+  description: "Reset your Dialogue Quest account password.",
+  path: "/reset-password",
+  noindex: true
+ });
  const navigate = useNavigate();
  const [loading, setLoading] = useState(true);
  const [ready, setReady] = useState(false);

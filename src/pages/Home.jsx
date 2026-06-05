@@ -10,6 +10,7 @@ import {
 } from "../lib/audio";
 import DonateModal from "../components/DonateModal";
 import MultiplayerQuickModal from "../components/MultiplayerQuickModal";
+import { useSEO, SEO_PRESETS } from "../lib/seo";
 
 const insertRoomPlayer = async (payload) => {
  const { error } = await supabase
@@ -36,6 +37,7 @@ const insertRoomPlayer = async (payload) => {
 };
 
 export default function Home(){
+ useSEO(SEO_PRESETS.home);
  const navigate = useNavigate();
  const [audioEnabled, setAudioEnabled] =
   useAudioPreference();
@@ -164,7 +166,7 @@ export default function Home(){
  };
 
  return (
-  <div className="min-h-screen flex flex-col items-center justify-center text-center px-4 py-8">
+  <main className="min-h-screen flex flex-col items-center justify-center text-center px-4 py-8" aria-label="Dialogue Quest home">
    <DonateModal
     open={showDonate}
     onClose={() => setShowDonate(false)}
@@ -172,6 +174,7 @@ export default function Home(){
    <button
     type="button"
     onClick={toggleAudio}
+    aria-label={audioEnabled ? "Mute background music" : "Enable background music"}
     aria-pressed={audioEnabled}
     className="fixed top-4 right-4 z-20 flex items-center gap-3 rounded-full border border-zinc-700 bg-zinc-950/90 px-4 py-3 text-sm font-bold text-white shadow-xl"
    >
@@ -198,7 +201,7 @@ export default function Home(){
    <h1 className="text-5xl sm:text-7xl font-bold mb-6">Dialogue Quest</h1>
 
    <p className="text-gray-400 max-w-xl mb-8">
-    Guess movie and TV dialogues with friends in realtime multiplayer.
+    Free online multiplayer game. Guess Hollywood, Bollywood, TV show and anime dialogues, or identify songs from their lyrics. Play solo or with friends in realtime rooms.
    </p>
 
    {account && (
@@ -272,6 +275,6 @@ export default function Home(){
      navigate("/multiplayer?auth=signup");
     }}
    />
-  </div>
+  </main>
  )
 }

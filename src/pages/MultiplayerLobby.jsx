@@ -39,6 +39,7 @@ import LyricsLanguageModal, {
  LYRICS_LANGUAGES
 } from "../components/LyricsLanguageModal";
 import DonateModal from "../components/DonateModal";
+import { useSEO, SEO_PRESETS } from "../lib/seo";
 
 const mixCategoryOptions = [
  {
@@ -112,6 +113,7 @@ const insertRoomPlayer = async (payload) => {
 };
 
 export default function MultiplayerLobby() {
+ useSEO(SEO_PRESETS.multiplayer);
  const navigate = useNavigate();
  const [searchParams] = useSearchParams();
 
